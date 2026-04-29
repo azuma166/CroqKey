@@ -445,7 +445,7 @@ function tryUnlock(dx, dy) {
       maxAge: crit ? 30 : 22,
       crit,
     });
-    applyKeyEffect(keyCol, connectedEnemy);
+    if (hasKey) applyKeyEffect(keyCol, connectedEnemy);
     if (connectedEnemy.hp <= 0) {
       fullyUnlock(connectedEnemy);
     } else {
