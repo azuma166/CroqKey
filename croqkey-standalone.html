@@ -93,7 +93,7 @@ let beamFlash      = 0;
 let uiShake        = 0;
 let ghostTimer     = 0;
 let screenFlash    = null;
-const keyInventory = { red: 0, blue: 0, yellow: 0, green: 0, purple: 0 };
+const keyInventory = { red: 3, blue: 0, yellow: 0, green: 0, purple: 0 };
 
 // ══════════════════════════════════════════════
 //  PLAYER  (world coords)
@@ -207,7 +207,20 @@ let touchStartInsideRing = false;
 
 function playerScreenPos() { return w2s(player.x, player.y); }
 
+// Returns true if the tap was handled by the key panel
+function handlePanelTap(sx, sy) {
+  const slots = keyPanelSlots();
+  for (const s of slots) {
+    if (Math.hypot(sx - s.cx, sy - s.cy) < s.r + 6) {
+      if (keyInventory[s.color] > 0) selectedKeyColor = s.color;
+      return true;
+    }
+  }
+  return false;
+}
+
 function pointerDown(sx, sy) {
+  if (handlePanelTap(sx, sy)) return;
   touch = { sx, sy, t: performance.now() };
 
   if (state === State.IDLE) {
@@ -281,9 +294,10 @@ function connectEnemy(enemy) {
   ghostTimer     = CFG.GHOST_FRAMES;
 }
 
+let selectedKeyColor = 'red';
+
 function activeKeyColor() {
-  // Placeholder until key panel (step ⑤) — always red for now
-  return 'red';
+  return selectedKeyColor;
 }
 
 function tryUnlock(dx, dy) {
@@ -357,9 +371,11 @@ function resetGame() {
   effects.length = 0;
   keyDrops.length = 0;
   for (const c of COLORS) keyInventory[c] = 0;
+  keyInventory.red = 3;
   score = 0; frame = 0; gameTime = 0; spawnTimer = 0;
   beamFlash = uiShake = ghostTimer = 0;
   screenFlash = null; connectedEnemy = null;
+  selectedKeyColor = 'red';
   state = State.IDLE;
   initPlayer();
   spawnEnemies();
@@ -474,6 +490,7 @@ function render() {
   }
   renderEdgeIndicators();
   if (state === State.CONNECTED) renderCircularUI(t);
+  renderKeyPanel(t);
   renderHUD(w, h);
   if (state === State.GAMEOVER) renderGameOver(w, h);
 }
@@ -806,6 +823,91 @@ function renderDirectionGuide(cx, cy, angle) {
   ctx.fill();
 }
 
+// Returns screen-space slot descriptors for the key panel
+function keyPanelSlots() {
+  const w = W(), h = H();
+  const slotR   = 20;
+  const spacing = 52;
+  const totalW  = (COLORS.length - 1) * spacing;
+  const panelY  = h - 52;
+  return COLORS.map((c, i) => ({
+    color: c,
+    cx: w / 2 - totalW / 2 + i * spacing,
+    cy: panelY,
+    r:  slotR,
+  }));
+}
+
+function renderKeyPanel(t) {
+  const w = W(), h = H();
+  const slots  = keyPanelSlots();
+  const panelY = h - 52;
+
+  // Background pill
+  ctx.save();
+  ctx.globalAlpha = 0.72;
+  ctx.fillStyle = '#1e1e1e';
+  const pw = slots[slots.length-1].cx - slots[0].cx + 64;
+  roundRect(slots[0].cx - 32, panelY - 28, pw, 56, 14);
+  ctx.restore();
+
+  for (const s of slots) {
+    const col     = COLOR_HEX[s.color];
+    const count   = keyInventory[s.color] || 0;
+    const active  = selectedKeyColor === s.color;
+    const hasKey  = count > 0;
+    const pulse   = active ? 0.85 + 0.15 * Math.sin(t * 4) : 1;
+
+    ctx.save();
+
+    // Outer ring (active highlight)
+    if (active) {
+      ctx.strokeStyle = col;
+      ctx.lineWidth   = 2.5;
+      ctx.globalAlpha = 0.9 * pulse;
+      ctx.beginPath(); ctx.arc(s.cx, s.cy, s.r + 5, 0, Math.PI * 2); ctx.stroke();
+    }
+
+    // Slot background
+    ctx.globalAlpha = hasKey ? 0.18 : 0.07;
+    ctx.fillStyle   = col;
+    ctx.beginPath(); ctx.arc(s.cx, s.cy, s.r, 0, Math.PI * 2); ctx.fill();
+
+    // Diamond icon
+    if (hasKey) {
+      const sz = 9;
+      ctx.globalAlpha = active ? 0.95 * pulse : 0.65;
+      ctx.fillStyle   = col;
+      ctx.beginPath();
+      ctx.moveTo(s.cx,      s.cy - sz);
+      ctx.lineTo(s.cx + sz * 0.65, s.cy);
+      ctx.lineTo(s.cx,      s.cy + sz);
+      ctx.lineTo(s.cx - sz * 0.65, s.cy);
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = active ? 0.5 * pulse : 0.25;
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
+      ctx.stroke();
+    } else {
+      // Empty circle
+      ctx.globalAlpha = 0.25;
+      ctx.strokeStyle = col; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.arc(s.cx, s.cy, 7, 0, Math.PI * 2); ctx.stroke();
+    }
+
+    // Count badge
+    if (count > 1) {
+      ctx.globalAlpha = 0.9;
+      ctx.fillStyle   = '#fff';
+      ctx.font        = 'bold 10px -apple-system, monospace';
+      ctx.textAlign   = 'center';
+      ctx.fillText(count, s.cx + s.r * 0.6, s.cy - s.r * 0.55);
+    }
+
+    ctx.restore();
+  }
+}
+
 function renderHUD(w, h) {
   // HP bar (top center)
   const barW = Math.min(w * 0.52, 260), barH = 6;
@@ -828,9 +930,9 @@ function renderHUD(w, h) {
 
   ctx.fillStyle = '#aaa'; ctx.font = '11px -apple-system, sans-serif'; ctx.textAlign = 'center';
   if (state === State.IDLE)
-    ctx.fillText('タップ: 接続/停止  フリック: 移動', w / 2, h - 18);
+    ctx.fillText('タップ: 接続/停止  フリック: 移動', w / 2, h - 100);
   else
-    ctx.fillText('内側起点フリック: 解錠  外側起点フリック: 離脱', w / 2, h - 18);
+    ctx.fillText('内側起点フリック: 解錠  外側起点フリック: 離脱', w / 2, h - 100);
 }
 
 function renderGameOver(w, h) {
