@@ -18,8 +18,8 @@
 // ─────────────────────────────────────────────
 
 const CFG = {
-  PLAYER_R:          24,
-  ENEMY_R:           22,
+  PLAYER_R:          13,
+  ENEMY_R:           15,
   ENEMY_COUNT:        6,
   ENEMY_BASE_SPEED:   0.9,
   SLOW_FACTOR:        0.25,
@@ -346,6 +346,7 @@ function render() {
     ctx.fillStyle = `rgba(${screenFlash.r},${screenFlash.g},${screenFlash.b},${screenFlash.alpha})`;
     ctx.fillRect(0, 0, w, h);
   }
+  renderEdgeIndicators();
   if (state === State.CONNECTED) renderCircularUI(t);
   renderHUD(w, h);
 }
@@ -463,9 +464,13 @@ function renderEnemy(e, t) {
   ctx.lineWidth   = focused ? 2.5 : 1.5;
   ctx.beginPath(); ctx.arc(0, 0, e.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
 
-  ctx.strokeStyle = focused ? '#2a2a2a' : '#888'; ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.arc(0, -5, 5.5, 0, Math.PI * 2); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(-4, -1.5); ctx.lineTo(-4, 7); ctx.lineTo(4, 7); ctx.lineTo(4, -1.5); ctx.stroke();
+  const kr = e.r * 0.28, ky = -e.r * 0.22, ksw = e.r * 0.22, ksh = e.r * 0.45;
+  ctx.strokeStyle = focused ? '#2a2a2a' : '#888'; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.arc(0, ky, kr, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(-ksw, ky + kr * 0.7); ctx.lineTo(-ksw, ky + ksh);
+  ctx.lineTo( ksw, ky + ksh);      ctx.lineTo( ksw, ky + kr * 0.7);
+  ctx.stroke();
 
   for (let i = 0; i < e.maxHp; i++) {
     const a = (i / e.maxHp) * Math.PI * 2 - Math.PI * 0.5;
@@ -498,14 +503,15 @@ function renderPlayer(t) {
   ctx.fillStyle = '#242424';
   ctx.beginPath(); ctx.arc(0, 0, player.r * 0.65, 0, Math.PI * 2); ctx.fill();
 
-  ctx.strokeStyle = '#f0ede6'; ctx.fillStyle = '#f0ede6'; ctx.lineWidth = 1.5; ctx.lineCap = 'round';
-  for (const ex of [-7, 7]) {
-    ctx.beginPath(); ctx.arc(ex, -3, 1.5, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(ex - 4.5, -3); ctx.lineTo(ex + 4.5, -3); ctx.stroke();
+  const er = player.r * 0.42, ey0 = -player.r * 0.1;
+  ctx.strokeStyle = '#f0ede6'; ctx.fillStyle = '#f0ede6'; ctx.lineWidth = 1; ctx.lineCap = 'round';
+  for (const ex of [-er, er]) {
+    ctx.beginPath(); ctx.arc(ex, ey0, player.r * 0.1, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(ex - player.r * 0.28, ey0); ctx.lineTo(ex + player.r * 0.28, ey0); ctx.stroke();
   }
 
   ctx.fillStyle = CFG.KEY_COLOR; ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.arc(player.r * 0.68, -player.r * 0.68, 4.5, 0, Math.PI * 2);
+  ctx.beginPath(); ctx.arc(player.r * 0.68, -player.r * 0.68, player.r * 0.28, 0, Math.PI * 2);
   ctx.fill(); ctx.stroke();
 
   ctx.restore();
@@ -594,6 +600,51 @@ function renderHUD(w, h) {
     ctx.fillText('タップ: 接続/停止  フリック: 移動', w / 2, h - 18);
   else
     ctx.fillText('内側起点フリック: 解錠  外側起点フリック: 離脱', w / 2, h - 18);
+}
+
+// ══════════════════════════════════════════════
+//  EDGE INDICATORS
+// ══════════════════════════════════════════════
+function renderEdgeIndicators() {
+  const margin = 22; // distance inset from screen edge
+  for (const e of enemies) {
+    if (!e.alive) continue;
+    const angle = Math.atan2(e.y - player.y, e.x - player.x);
+    const { x, y } = screenEdgePoint(angle, margin);
+    const sz = 7; // arrow half-size
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+
+    // Drop shadow
+    ctx.shadowColor = 'rgba(0,0,0,0.18)';
+    ctx.shadowBlur  = 4;
+
+    // Fill: key color, opacity by hp remaining
+    ctx.globalAlpha = 0.55 + (e.hp / e.maxHp) * 0.35;
+    ctx.fillStyle   = CFG.KEY_COLOR;
+    ctx.beginPath();
+    ctx.moveTo( sz,       0);
+    ctx.lineTo(-sz * 0.6, -sz * 0.65);
+    ctx.lineTo(-sz * 0.6,  sz * 0.65);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+    ctx.restore();
+  }
+}
+
+// Returns the point on the screen edge in the given angle from screen center
+function screenEdgePoint(angle, margin) {
+  const hw = W() / 2 - margin;
+  const hh = H() / 2 - margin;
+  const cos = Math.cos(angle), sin = Math.sin(angle);
+  const tx = cos !== 0 ? hw / Math.abs(cos) : Infinity;
+  const ty = sin !== 0 ? hh / Math.abs(sin) : Infinity;
+  const t  = Math.min(tx, ty);
+  return { x: W() / 2 + cos * t, y: H() / 2 + sin * t };
 }
 
 // ══════════════════════════════════════════════
