@@ -2,6 +2,18 @@
 //  CroqKey — Core Prototype v2
 // ─────────────────────────────────────────────
 
+// Enemy / key colors
+const COLORS = ['red', 'blue', 'yellow', 'green', 'purple'];
+const COLOR_HEX = {
+  red:    '#e8453c',
+  blue:   '#3c7de8',
+  yellow: '#ddb830',
+  green:  '#3db86a',
+  purple: '#9844e8',
+};
+// Seconds at which each color starts appearing
+const COLOR_UNLOCK = { red: 0, blue: 25, yellow: 55, green: 90, purple: 130 };
+
 const CFG = {
   PLAYER_R:          13,
   ENEMY_R:           15,
@@ -101,6 +113,10 @@ function spawnEnemies() {
 // single enemy spawn used by trickle system
 function spawnEnemy() { addEnemy(); }
 
+function availableColors() {
+  return COLORS.filter(c => gameTime >= COLOR_UNLOCK[c]);
+}
+
 function addEnemy() {
   let x, y, tries = 0;
   const minDist = 150;
@@ -112,6 +128,8 @@ function addEnemy() {
     y = player.y + Math.sin(a) * d;
   } while (++tries < 20 && Math.hypot(x - player.x, y - player.y) < minDist);
 
+  const cols = availableColors();
+  const color = cols[Math.floor(Math.random() * cols.length)];
   const spd = CFG.ENEMY_BASE_SPEED * (0.5 + Math.random() * 0.8);
   const ang = Math.random() * Math.PI * 2;
   enemies.push({
@@ -122,6 +140,7 @@ function addEnemy() {
     r:  CFG.ENEMY_R,
     hp: CFG.ENEMY_HP,
     maxHp: CFG.ENEMY_HP,
+    color,
     requiredAngle: randomAngle(),
     alive: true,
     crackShake: 0,
@@ -218,16 +237,29 @@ function connectEnemy(enemy) {
   ghostTimer     = CFG.GHOST_FRAMES;
 }
 
+function activeKeyColor() {
+  // Placeholder until key panel (step ⑤) — always red for now
+  return 'red';
+}
+
 function tryUnlock(dx, dy) {
   if (!connectedEnemy) return;
   const flickAngle = Math.atan2(dy, dx);
   const diff = angleDiff(flickAngle, connectedEnemy.requiredAngle);
   if (Math.abs(diff) < CFG.UNLOCK_TOLERANCE) {
-    connectedEnemy.hp--;
+    const keyCol = activeKeyColor();
+    const crit   = keyCol === connectedEnemy.color;
+    const dmg    = crit ? 2 : 1;
+
+    connectedEnemy.hp -= dmg;
     connectedEnemy.crackShake = 18;
     beamFlash = 8;
-    connectedEnemy.requiredAngle = randomAngle(); // new direction each hit
-    addFx('hit', connectedEnemy.x, connectedEnemy.y, { color: CFG.KEY_COLOR, maxAge: 22 });
+    connectedEnemy.requiredAngle = randomAngle();
+    addFx('hit', connectedEnemy.x, connectedEnemy.y, {
+      color: COLOR_HEX[connectedEnemy.color],
+      maxAge: crit ? 30 : 22,
+      crit,
+    });
     if (connectedEnemy.hp <= 0) fullyUnlock(connectedEnemy);
     else ghostTimer = CFG.GHOST_FRAMES;
   } else {
@@ -244,10 +276,16 @@ function angleDiff(a, b) {
 }
 
 function fullyUnlock(enemy) {
-  enemy.alive    = false;
+  enemy.alive = false;
   score++;
-  addFx('explosion', enemy.x, enemy.y, { color: CFG.KEY_COLOR, maxAge: 55 });
-  screenFlash    = { r: 232, g: 69, b: 60, alpha: 0.35 };
+  const hex = COLOR_HEX[enemy.color] || CFG.KEY_COLOR;
+  const [er, eg, eb] = [
+    parseInt(hex.slice(1,3),16),
+    parseInt(hex.slice(3,5),16),
+    parseInt(hex.slice(5,7),16),
+  ];
+  addFx('explosion', enemy.x, enemy.y, { color: hex, maxAge: 55 });
+  screenFlash = { r: er, g: eg, b: eb, alpha: 0.22 };
   connectedEnemy = null;
   state          = State.IDLE;
   ghostTimer     = 0;
@@ -428,8 +466,14 @@ function renderEffectsWorld(t) {
       }
     }
     if (e.type === 'hit') {
-      ctx.globalAlpha = (1 - p) * 0.75; ctx.strokeStyle = e.color; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(e.x, e.y, p * 22, 0, Math.PI * 2); ctx.stroke();
+      const sz = e.crit ? 36 : 22;
+      ctx.globalAlpha = (1 - p) * (e.crit ? 0.9 : 0.75);
+      ctx.strokeStyle = e.color; ctx.lineWidth = e.crit ? 3 : 1.5;
+      ctx.beginPath(); ctx.arc(e.x, e.y, p * sz, 0, Math.PI * 2); ctx.stroke();
+      if (e.crit) {
+        ctx.globalAlpha = (1 - p) * 0.3; ctx.fillStyle = e.color;
+        ctx.beginPath(); ctx.arc(e.x, e.y, p * sz * 0.6, 0, Math.PI * 2); ctx.fill();
+      }
     }
     if (e.type === 'escape') {
       ctx.globalAlpha = (1 - p) * 0.5; ctx.strokeStyle = '#888'; ctx.lineWidth = 2;
@@ -471,10 +515,11 @@ function renderBeam(t) {
   }
   ctx.save();
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-  ctx.globalAlpha = 0.18; ctx.strokeStyle = CFG.KEY_COLOR; ctx.lineWidth = 12;
+  const beamCol = connectedEnemy ? COLOR_HEX[connectedEnemy.color] : CFG.KEY_COLOR;
+  ctx.globalAlpha = 0.18; ctx.strokeStyle = beamCol; ctx.lineWidth = 12;
   drawPath(pts);
   ctx.globalAlpha = flash ? 1.0 : 0.88;
-  ctx.strokeStyle = flash ? '#fff' : CFG.KEY_COLOR;
+  ctx.strokeStyle = flash ? '#fff' : beamCol;
   ctx.lineWidth   = flash ? 4.5 : 2.0;
   drawPath(pts);
   ctx.restore();
@@ -488,36 +533,45 @@ function drawPath(pts) {
 
 function renderEnemy(e, t) {
   const focused = connectedEnemy === e;
+  const ecol    = COLOR_HEX[e.color] || CFG.KEY_COLOR;
   ctx.save();
   ctx.translate(e.x, e.y);
   if (e.crackShake > 0) ctx.translate((Math.random() - 0.5) * 2.5, (Math.random() - 0.5) * 1.5);
 
+  // Proximity pulse (colored)
   if (state === State.IDLE) {
     const d = Math.hypot(player.x - e.x, player.y - e.y);
     if (d < 210) {
-      ctx.globalAlpha = 0.12 + 0.09 * Math.sin(t * 3.5);
-      ctx.strokeStyle = '#777'; ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.10 + 0.07 * Math.sin(t * 3.5);
+      ctx.strokeStyle = ecol; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.arc(0, 0, e.r + 12, 0, Math.PI * 2); ctx.stroke();
       ctx.globalAlpha = 1;
     }
   }
 
-  ctx.fillStyle   = focused ? 'rgba(190,188,183,0.3)' : 'rgba(210,208,202,0.15)';
+  // Body (subtle color tint)
+  ctx.fillStyle   = focused ? `${ecol}28` : `${ecol}12`;
   ctx.strokeStyle = focused ? '#222' : '#777';
   ctx.lineWidth   = focused ? 2.5 : 1.5;
   ctx.beginPath(); ctx.arc(0, 0, e.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
 
+  // Keyhole (colored)
   const kr = e.r * 0.28, ky = -e.r * 0.22, ksw = e.r * 0.22, ksh = e.r * 0.45;
-  ctx.strokeStyle = focused ? '#2a2a2a' : '#888'; ctx.lineWidth = 1.2;
+  ctx.strokeStyle = focused ? ecol : `${ecol}99`; ctx.lineWidth = 1.2;
   ctx.beginPath(); ctx.arc(0, ky, kr, 0, Math.PI * 2); ctx.stroke();
   ctx.beginPath();
   ctx.moveTo(-ksw, ky + kr * 0.7); ctx.lineTo(-ksw, ky + ksh);
   ctx.lineTo( ksw, ky + ksh);      ctx.lineTo( ksw, ky + kr * 0.7);
   ctx.stroke();
 
+  // Color dot above enemy
+  ctx.fillStyle = ecol;
+  ctx.beginPath(); ctx.arc(0, -e.r - 5, 3, 0, Math.PI * 2); ctx.fill();
+
+  // HP pips (enemy color)
   for (let i = 0; i < e.maxHp; i++) {
     const a = (i / e.maxHp) * Math.PI * 2 - Math.PI * 0.5;
-    ctx.fillStyle = i < e.hp ? CFG.KEY_COLOR : '#ccc';
+    ctx.fillStyle = i < e.hp ? ecol : '#ccc';
     ctx.beginPath(); ctx.arc(Math.cos(a) * (e.r + 7), Math.sin(a) * (e.r + 7), 2.5, 0, Math.PI * 2); ctx.fill();
   }
 
@@ -705,9 +759,9 @@ function renderEdgeIndicators() {
     ctx.shadowColor = 'rgba(0,0,0,0.18)';
     ctx.shadowBlur  = 4;
 
-    // Fill: key color, opacity by hp remaining
+    // Fill: enemy color, opacity by hp remaining
     ctx.globalAlpha = 0.55 + (e.hp / e.maxHp) * 0.35;
-    ctx.fillStyle   = CFG.KEY_COLOR;
+    ctx.fillStyle   = COLOR_HEX[e.color] || CFG.KEY_COLOR;
     ctx.beginPath();
     ctx.moveTo( sz,       0);
     ctx.lineTo(-sz * 0.6, -sz * 0.65);
