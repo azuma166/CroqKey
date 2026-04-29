@@ -408,24 +408,21 @@ function tryUnlock(dx, dy) {
   const flickAngle = Math.atan2(dy, dx);
   const diff = angleDiff(flickAngle, connectedEnemy.requiredAngle);
   if (Math.abs(diff) < CFG.UNLOCK_TOLERANCE) {
-    const keyCol = activeKeyColor();
-    if (keyInventory[keyCol] <= 0) {
-      // No durability — treat as failed attempt
-      uiShake = 14;
-      addFx('noDur', player.x, player.y, { maxAge: 22, color: COLOR_HEX[keyCol] });
-      return;
-    }
-    const crit    = keyCol === connectedEnemy.color;
+    const keyCol  = activeKeyColor();
+    const hasKey  = keyInventory[keyCol] > 0;
+    const crit    = hasKey && keyCol === connectedEnemy.color;
     const dmg     = crit ? 2 : 1;
-    const durCost = crit ? CFG.DUR_COST_CRIT : CFG.DUR_COST_NORMAL;
 
-    keyInventory[keyCol] = Math.max(0, keyInventory[keyCol] - durCost);
+    if (hasKey) {
+      const durCost = crit ? CFG.DUR_COST_CRIT : CFG.DUR_COST_NORMAL;
+      keyInventory[keyCol] = Math.max(0, keyInventory[keyCol] - durCost);
+    }
     connectedEnemy.hp -= dmg;
     connectedEnemy.crackShake = 18;
     beamFlash = 8;
     connectedEnemy.requiredAngle = randomAngle();
     addFx('hit', connectedEnemy.x, connectedEnemy.y, {
-      color: COLOR_HEX[connectedEnemy.color],
+      color: hasKey ? COLOR_HEX[connectedEnemy.color] : '#aaaaaa',
       maxAge: crit ? 30 : 22,
       crit,
     });
