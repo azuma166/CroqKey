@@ -198,6 +198,111 @@ function collectKey(color) {
 }
 
 // ══════════════════════════════════════════════
+//  AUDIO  (Web Audio API — procedural synthesis)
+// ══════════════════════════════════════════════
+let _ac = null;
+function ac() {
+  if (!_ac) _ac = new (window.AudioContext || window.webkitAudioContext)();
+  if (_ac.state === 'suspended') _ac.resume();
+  return _ac;
+}
+
+// Noise burst for the カチッ click transient
+function makeClickNode(ac, freq, duration) {
+  const len  = Math.ceil(ac.sampleRate * duration);
+  const buf  = ac.createBuffer(1, len, ac.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1);
+  const src = ac.createBufferSource();
+  src.buffer = buf;
+  const bpf = ac.createBiquadFilter();
+  bpf.type = 'bandpass';
+  bpf.frequency.value = freq;
+  bpf.Q.value = 4;
+  src.connect(bpf);
+  return { node: bpf, src };
+}
+
+// hitsLanded: hits on this enemy so far after this blow (1 = first hit)
+// maxHp: enemy's max HP — determines pitch ceiling
+function playHitSound(hitsLanded, maxHp, crit) {
+  const a   = ac();
+  const now = a.currentTime;
+
+  // Pitch rises from hit 1 → maxHp. Map to two octaves (220–880 Hz)
+  const t        = Math.min((hitsLanded - 1) / Math.max(maxHp - 1, 1), 1);
+  const baseFreq = 220 * Math.pow(4, t * 0.85);
+
+  const master = a.createGain();
+  master.gain.setValueAtTime(crit ? 0.5 : 0.32, now);
+  master.connect(a.destination);
+
+  // ── カチッ: noise burst through bandpass ──
+  const { node: clickOut, src: clickSrc } = makeClickNode(a, baseFreq * 6, 0.03);
+  const clickGain = a.createGain();
+  clickGain.gain.setValueAtTime(0.9, now);
+  clickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.028);
+  clickOut.connect(clickGain);
+  clickGain.connect(master);
+  clickSrc.start(now);
+  clickSrc.stop(now + 0.035);
+
+  // ── シャーン: metallic bell partials (1, 2.756, 5.404) ──
+  const partials = [1, 2.756, 5.404];
+  const amps     = [1.0, 0.45, 0.22];
+  const decay    = 0.38 + t * 0.55 + (crit ? 0.25 : 0);
+
+  for (let i = 0; i < partials.length; i++) {
+    const osc  = a.createOscillator();
+    const gain = a.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(baseFreq * partials[i], now);
+    gain.gain.setValueAtTime(amps[i] * 0.55, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + decay);
+    osc.connect(gain);
+    gain.connect(master);
+    osc.start(now);
+    osc.stop(now + decay + 0.05);
+  }
+}
+
+// Full unlock: bright shimmering chord
+function playUnlockSound() {
+  const a   = ac();
+  const now = a.currentTime;
+
+  const master = a.createGain();
+  master.gain.setValueAtTime(0.45, now);
+  master.connect(a.destination);
+
+  // Chord: A5 + C#6 + E6 + A6
+  const freqs = [880, 1108.73, 1318.51, 1760];
+  const amps  = [0.9, 0.75, 0.65, 0.5];
+  for (let i = 0; i < freqs.length; i++) {
+    const osc  = a.createOscillator();
+    const gain = a.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freqs[i], now);
+    gain.gain.setValueAtTime(amps[i], now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 1.6);
+    osc.connect(gain);
+    gain.connect(master);
+    osc.start(now);
+    osc.stop(now + 1.7);
+  }
+
+  // Click transient on top
+  const { node: clickOut, src: clickSrc } = makeClickNode(a, 4000, 0.02);
+  const cg = a.createGain();
+  cg.gain.setValueAtTime(1.2, now);
+  cg.gain.exponentialRampToValueAtTime(0.001, now + 0.018);
+  clickOut.connect(cg);
+  cg.connect(master);
+  clickSrc.start(now);
+  clickSrc.stop(now + 0.025);
+}
+
+// ══════════════════════════════════════════════
 //  INPUT
 // ══════════════════════════════════════════════
 let touch                = null; // { sx, sy, t }  — screen coords
@@ -325,8 +430,13 @@ function tryUnlock(dx, dy) {
       crit,
     });
     if (crit) applyKeyEffect(keyCol, connectedEnemy);
-    if (connectedEnemy.hp <= 0) fullyUnlock(connectedEnemy);
-    else ghostTimer = CFG.GHOST_FRAMES;
+    if (connectedEnemy.hp <= 0) {
+      fullyUnlock(connectedEnemy);
+    } else {
+      const hitsLanded = connectedEnemy.maxHp - connectedEnemy.hp;
+      playHitSound(hitsLanded, connectedEnemy.maxHp, crit);
+      ghostTimer = CFG.GHOST_FRAMES;
+    }
   } else {
     uiShake = 10;
     addFx('miss', player.x, player.y, { maxAge: 16 });
@@ -404,6 +514,7 @@ function fullyUnlock(enemy) {
     parseInt(hex.slice(5,7),16),
   ];
   addFx('explosion', enemy.x, enemy.y, { color: hex, maxAge: 55 });
+  playUnlockSound();
   screenFlash = { r: er, g: eg, b: eb, alpha: 0.22 };
   if (Math.random() < KEY_DROP_CHANCE) dropKey(enemy.x, enemy.y, enemy.color);
 
