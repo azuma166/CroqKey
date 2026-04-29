@@ -24,7 +24,7 @@ const CFG = {
   ENEMY_BASE_SPEED:   0.9,
   SLOW_FACTOR:        0.25,
   FRICTION:           0.97,   // high inertia
-  MAX_SPEED:          20,
+  MAX_SPEED:          10,
   FLICK_MIN:          16,
   INNER_R:            62,
   OUTER_R:           180,   // much larger escape zone visual
@@ -176,7 +176,7 @@ function pointerUp(sx, sy) {
       player.vx = player.vy = 0;
     } else {
       // Flick → move
-      const spd = Math.min(dist / dt * 26, CFG.MAX_SPEED);
+      const spd = Math.min(dist / dt * 12, CFG.MAX_SPEED);
       const a   = Math.atan2(dy, dx);
       player.vx = Math.cos(a) * spd;
       player.vy = Math.sin(a) * spd;
@@ -554,28 +554,42 @@ function renderCircularUI(t) {
 }
 
 function renderDirectionGuide(cx, cy, angle) {
-  const len = CFG.INNER_R * 0.62;
-  const ex  = cx + Math.cos(angle) * len;
-  const ey  = cy + Math.sin(angle) * len;
+  const stemStart = CFG.INNER_R * 0.25;
+  const stemEnd   = CFG.OUTER_R * 0.88;
+  const ex = cx + Math.cos(angle) * stemEnd;
+  const ey = cy + Math.sin(angle) * stemEnd;
 
-  // Tolerance arc (faint fan showing ±45° range)
-  ctx.strokeStyle = CFG.KEY_COLOR; ctx.lineWidth = 1; ctx.fillStyle = CFG.KEY_COLOR;
-  ctx.globalAlpha *= 0.25;
+  // Tolerance fan (±45°), fills from inner edge to outer ring
+  const baseAlpha = ctx.globalAlpha;
+  ctx.save();
+  ctx.globalAlpha = baseAlpha * 0.18;
+  ctx.fillStyle = CFG.KEY_COLOR;
   ctx.beginPath();
-  ctx.moveTo(cx, cy);
-  ctx.arc(cx, cy, CFG.INNER_R * 0.55, angle - CFG.UNLOCK_TOLERANCE, angle + CFG.UNLOCK_TOLERANCE);
-  ctx.closePath(); ctx.fill();
-  ctx.globalAlpha /= 0.25;
+  ctx.moveTo(cx + Math.cos(angle - CFG.UNLOCK_TOLERANCE) * CFG.INNER_R,
+             cy + Math.sin(angle - CFG.UNLOCK_TOLERANCE) * CFG.INNER_R);
+  ctx.arc(cx, cy, CFG.OUTER_R * 0.85, angle - CFG.UNLOCK_TOLERANCE, angle + CFG.UNLOCK_TOLERANCE);
+  ctx.arc(cx, cy, CFG.INNER_R,        angle + CFG.UNLOCK_TOLERANCE, angle - CFG.UNLOCK_TOLERANCE, true);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
 
-  // Arrow
-  ctx.strokeStyle = CFG.KEY_COLOR; ctx.fillStyle = CFG.KEY_COLOR; ctx.lineWidth = 2.8; ctx.lineCap = 'round';
-  ctx.beginPath(); ctx.moveTo(cx + Math.cos(angle) * 10, cy + Math.sin(angle) * 10); ctx.lineTo(ex, ey); ctx.stroke();
-  const hw = Math.PI / 5.5;
+  // Stem
+  ctx.strokeStyle = CFG.KEY_COLOR; ctx.lineWidth = 4; ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(cx + Math.cos(angle) * stemStart, cy + Math.sin(angle) * stemStart);
+  ctx.lineTo(ex, ey);
+  ctx.stroke();
+
+  // Arrowhead
+  const hw = Math.PI / 5;
+  const hs = 22;
+  ctx.fillStyle = CFG.KEY_COLOR;
   ctx.beginPath();
   ctx.moveTo(ex, ey);
-  ctx.lineTo(ex - Math.cos(angle - hw) * 14, ey - Math.sin(angle - hw) * 14);
-  ctx.lineTo(ex - Math.cos(angle + hw) * 14, ey - Math.sin(angle + hw) * 14);
-  ctx.closePath(); ctx.fill();
+  ctx.lineTo(ex - Math.cos(angle - hw) * hs, ey - Math.sin(angle - hw) * hs);
+  ctx.lineTo(ex - Math.cos(angle + hw) * hs, ey - Math.sin(angle + hw) * hs);
+  ctx.closePath();
+  ctx.fill();
 }
 
 function renderHUD(w, h) {
