@@ -170,7 +170,7 @@ function addEnemy() {
     hp,
     maxHp: hp,
     color,
-    requiredAngle: randomAngle(),
+    angleQueue: [randomAngle(), randomAngle(), randomAngle(), randomAngle()],
     alive: true,
     crackShake: 0,
     slowTimer: 0,
@@ -190,7 +190,7 @@ function addFx(type, x, y, opts = {}) {
 //  KEY DROPS  (world-space collectibles)
 // ══════════════════════════════════════════════
 const keyDrops = [];
-const KEY_DROP_CHANCE  = 0.35;  // probability an enemy drops a key
+const KEY_DROP_CHANCE  = 0.65;  // probability an enemy drops a key
 const KEY_PICK_RADIUS  = 28;    // auto-collect distance
 const KEY_BOB_AMP      = 3.5;   // pixel amplitude of bob
 const KEY_BOB_SPEED    = 2.2;   // radians/s
@@ -424,7 +424,7 @@ function activeKeyColor() {
 function tryUnlock(dx, dy) {
   if (!connectedEnemy) return;
   const flickAngle = Math.atan2(dy, dx);
-  const diff = angleDiff(flickAngle, connectedEnemy.requiredAngle);
+  const diff = angleDiff(flickAngle, connectedEnemy.angleQueue[0]);
   if (Math.abs(diff) < CFG.UNLOCK_TOLERANCE) {
     const keyCol  = activeKeyColor();
     const hasKey  = keyInventory[keyCol] > 0;
@@ -438,7 +438,8 @@ function tryUnlock(dx, dy) {
     connectedEnemy.hp -= dmg;
     connectedEnemy.crackShake = 18;
     beamFlash = 8;
-    connectedEnemy.requiredAngle = randomAngle();
+    connectedEnemy.angleQueue.shift();
+    if (connectedEnemy.angleQueue.length < 3) connectedEnemy.angleQueue.push(randomAngle());
     addFx('hit', connectedEnemy.x, connectedEnemy.y, {
       color: hasKey ? COLOR_HEX[connectedEnemy.color] : '#aaaaaa',
       maxAge: crit ? 30 : 22,
@@ -1033,6 +1034,7 @@ function renderCircularUI(t) {
   const ps = playerScreenPos();
   const cx = ps.x, cy = ps.y;
   const shakeX = uiShake > 0 ? Math.sin(uiShake * 1.8) * (uiShake / 10) * 5 : 0;
+  const keyCol = COLOR_HEX[activeKeyColor()] || CFG.KEY_COLOR;
 
   ctx.save();
   ctx.translate(shakeX, 0);
@@ -1044,20 +1046,34 @@ function renderCircularUI(t) {
   ctx.fillStyle = 'rgba(200,68,68,0.04)';
   ctx.beginPath(); ctx.arc(cx, cy, CFG.OUTER_R, 0, Math.PI * 2); ctx.fill();
 
-  // Inner ring (unlock zone, animated flow)
+  // Inner ring (unlock zone) — active key color
   const dashOff = -(t * 0.55 % 1) * 20;
-  ctx.globalAlpha = 0.78; ctx.strokeStyle = CFG.KEY_COLOR; ctx.lineWidth = 2.2;
+  ctx.globalAlpha = 0.78; ctx.strokeStyle = keyCol; ctx.lineWidth = 2.2;
   ctx.setLineDash([13, 7]); ctx.lineDashOffset = dashOff;
   ctx.beginPath(); ctx.arc(cx, cy, CFG.INNER_R, 0, Math.PI * 2); ctx.stroke();
   ctx.setLineDash([]); ctx.lineDashOffset = 0;
-  ctx.globalAlpha = 0.08; ctx.fillStyle = CFG.KEY_COLOR;
+  ctx.globalAlpha = 0.08; ctx.fillStyle = keyCol;
   ctx.beginPath(); ctx.arc(cx, cy, CFG.INNER_R, 0, Math.PI * 2); ctx.fill();
   ctx.globalAlpha = 1;
 
-  // Ghost direction guide
-  if (ghostTimer > 0 && connectedEnemy) {
-    ctx.globalAlpha = Math.min(ghostTimer / 25, 1) * 0.58;
-    renderDirectionGuide(cx, cy, connectedEnemy.requiredAngle);
+  // Direction guides: current + 2 predictions
+  if (connectedEnemy) {
+    const q = connectedEnemy.angleQueue;
+    const ghostAlpha = ghostTimer > 0 ? Math.min(ghostTimer / 25, 1) : 0.4;
+
+    // 2nd prediction (faintest)
+    if (q.length > 2) {
+      ctx.globalAlpha = 0.13;
+      renderDirectionGuide(cx, cy, q[2], keyCol);
+    }
+    // 1st prediction (medium)
+    if (q.length > 1) {
+      ctx.globalAlpha = 0.28;
+      renderDirectionGuide(cx, cy, q[1], keyCol);
+    }
+    // Current (brightest, fades with ghost timer)
+    ctx.globalAlpha = ghostAlpha * 0.62;
+    renderDirectionGuide(cx, cy, q[0], keyCol);
     ctx.globalAlpha = 1;
   }
 
@@ -1069,17 +1085,18 @@ function renderCircularUI(t) {
   ctx.restore();
 }
 
-function renderDirectionGuide(cx, cy, angle) {
+// color: hex string for this guide's color
+function renderDirectionGuide(cx, cy, angle, color) {
   const stemStart = CFG.INNER_R * 0.25;
   const stemEnd   = CFG.OUTER_R * 0.88;
   const ex = cx + Math.cos(angle) * stemEnd;
   const ey = cy + Math.sin(angle) * stemEnd;
 
-  // Tolerance fan (±45°), fills from inner edge to outer ring
+  // Tolerance fan (±45°)
   const baseAlpha = ctx.globalAlpha;
   ctx.save();
   ctx.globalAlpha = baseAlpha * 0.18;
-  ctx.fillStyle = CFG.KEY_COLOR;
+  ctx.fillStyle = color;
   ctx.beginPath();
   ctx.moveTo(cx + Math.cos(angle - CFG.UNLOCK_TOLERANCE) * CFG.INNER_R,
              cy + Math.sin(angle - CFG.UNLOCK_TOLERANCE) * CFG.INNER_R);
@@ -1090,7 +1107,7 @@ function renderDirectionGuide(cx, cy, angle) {
   ctx.restore();
 
   // Stem
-  ctx.strokeStyle = CFG.KEY_COLOR; ctx.lineWidth = 4; ctx.lineCap = 'round';
+  ctx.strokeStyle = color; ctx.lineWidth = 4; ctx.lineCap = 'round';
   ctx.beginPath();
   ctx.moveTo(cx + Math.cos(angle) * stemStart, cy + Math.sin(angle) * stemStart);
   ctx.lineTo(ex, ey);
@@ -1099,7 +1116,7 @@ function renderDirectionGuide(cx, cy, angle) {
   // Arrowhead
   const hw = Math.PI / 5;
   const hs = 22;
-  ctx.fillStyle = CFG.KEY_COLOR;
+  ctx.fillStyle = color;
   ctx.beginPath();
   ctx.moveTo(ex, ey);
   ctx.lineTo(ex - Math.cos(angle - hw) * hs, ey - Math.sin(angle - hw) * hs);
