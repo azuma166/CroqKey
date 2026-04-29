@@ -8,15 +8,17 @@ const CFG = {
   ENEMY_COUNT:        6,
   ENEMY_BASE_SPEED:   0.9,
   SLOW_FACTOR:        0.25,
-  FRICTION:           0.97,   // high inertia
+  FRICTION:           0.97,
   MAX_SPEED:          10,
   FLICK_MIN:          16,
   INNER_R:            62,
-  OUTER_R:           180,   // much larger escape zone visual
+  OUTER_R:           180,
   KEY_COLOR:         '#e8453c',
   ENEMY_HP:           3,
   GHOST_FRAMES:       90,
-  UNLOCK_TOLERANCE:  Math.PI / 4,  // ±45° — acceptable flick angle range
+  UNLOCK_TOLERANCE:  Math.PI / 4,
+  PLAYER_HP_MAX:     10,
+  HIT_COOLDOWN:      90,   // invincibility frames after damage
 };
 
 // ══════════════════════════════════════════════
@@ -52,7 +54,7 @@ function s2w(sx, sy) { return { x: sx + cam.x, y: sy + cam.y }; }
 // ══════════════════════════════════════════════
 //  GAME STATE
 // ══════════════════════════════════════════════
-const State = { IDLE: 'idle', CONNECTED: 'connected' };
+const State = { IDLE: 'idle', CONNECTED: 'connected', GAMEOVER: 'gameover' };
 let state          = State.IDLE;
 let connectedEnemy = null;
 let score          = 0;
@@ -65,11 +67,19 @@ let screenFlash    = null;
 // ══════════════════════════════════════════════
 //  PLAYER  (world coords)
 // ══════════════════════════════════════════════
-const player = { x: 0, y: 0, vx: 0, vy: 0, r: CFG.PLAYER_R, invincible: 0 };
+const player = {
+  x: 0, y: 0, vx: 0, vy: 0,
+  r: CFG.PLAYER_R,
+  hp: CFG.PLAYER_HP_MAX,
+  invincible: 0,
+  hitFlash: 0,
+};
 
 function initPlayer() {
   player.x = player.y = 0;
   player.vx = player.vy = 0;
+  player.hp = CFG.PLAYER_HP_MAX;
+  player.invincible = player.hitFlash = 0;
   updateCamera();
 }
 
@@ -252,15 +262,26 @@ function emergencyEscape() {
   ghostTimer     = 0;
 }
 
+function resetGame() {
+  enemies.length = 0;
+  effects.length = 0;
+  score = 0; frame = 0;
+  beamFlash = uiShake = ghostTimer = 0;
+  screenFlash = null; connectedEnemy = null;
+  state = State.IDLE;
+  initPlayer();
+  spawnEnemies();
+}
 
 // ══════════════════════════════════════════════
 //  UPDATE
 // ══════════════════════════════════════════════
 function update() {
+  if (state === State.GAMEOVER) return;
   frame++;
   const sf = state === State.CONNECTED ? CFG.SLOW_FACTOR : 1.0;
 
-  // Player (no boundary — infinite world)
+  // Player
   if (state === State.IDLE) {
     player.x += player.vx;
     player.y += player.vy;
@@ -268,6 +289,7 @@ function update() {
     player.vy *= CFG.FRICTION;
   }
   if (player.invincible > 0) player.invincible--;
+  if (player.hitFlash   > 0) player.hitFlash--;
 
   updateCamera();
 
@@ -276,14 +298,29 @@ function update() {
     if (!e.alive) continue;
     e.x += e.vx * sf;
     e.y += e.vy * sf;
-    // Steer toward player
     const a = Math.atan2(player.y - e.y, player.x - e.x);
     e.vx += Math.cos(a) * 0.04;
     e.vy += Math.sin(a) * 0.04;
-    // Cap speed
     const spd = Math.hypot(e.vx, e.vy);
     if (spd > e.maxSpd) { e.vx = (e.vx / spd) * e.maxSpd; e.vy = (e.vy / spd) * e.maxSpd; }
     if (e.crackShake > 0) e.crackShake--;
+
+    // Contact damage
+    if (player.invincible <= 0) {
+      const d = Math.hypot(player.x - e.x, player.y - e.y);
+      if (d < player.r + e.r) {
+        player.hp--;
+        player.invincible = CFG.HIT_COOLDOWN;
+        player.hitFlash   = 22;
+        addFx('dmg', player.x, player.y, { maxAge: 25 });
+        if (player.hp <= 0) {
+          player.hp = 0;
+          state = State.GAMEOVER;
+          connectedEnemy = null;
+          setTimeout(resetGame, 3000);
+        }
+      }
+    }
   }
 
   // Effects
@@ -330,6 +367,7 @@ function render() {
   renderEdgeIndicators();
   if (state === State.CONNECTED) renderCircularUI(t);
   renderHUD(w, h);
+  if (state === State.GAMEOVER) renderGameOver(w, h);
 }
 
 function drawInfiniteGrid() {
@@ -386,6 +424,10 @@ function renderEffectsWorld(t) {
         ctx.lineTo(e.x + Math.cos(a) * p * 22, e.y + Math.sin(a) * p * 22);
         ctx.stroke();
       }
+    }
+    if (e.type === 'dmg') {
+      ctx.globalAlpha = (1 - p) * 0.75; ctx.strokeStyle = '#ff4444'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(e.x, e.y, p * 22, 0, Math.PI * 2); ctx.stroke();
     }
     ctx.restore();
   }
@@ -477,6 +519,15 @@ function renderPlayer(t) {
   ctx.save();
   ctx.translate(player.x, player.y);
   if (player.invincible > 0 && Math.floor(player.invincible / 3) % 2 === 1) ctx.globalAlpha = 0.35;
+
+  // Hit flash ring
+  if (player.hitFlash > 0) {
+    ctx.save();
+    ctx.globalAlpha = (player.hitFlash / 22) * 0.5;
+    ctx.fillStyle = '#ff4444';
+    ctx.beginPath(); ctx.arc(0, 0, player.r + 6, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
 
   ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.arc(0, 0, player.r, 0, Math.PI * 2); ctx.stroke();
@@ -578,23 +629,39 @@ function renderDirectionGuide(cx, cy, angle) {
 }
 
 function renderHUD(w, h) {
-  const barW = Math.min(w * 0.52, 260), barH = 4;
-  const bx = (w - barW) / 2, by = 18;
-  ctx.fillStyle = '#dbd9d2'; roundRect(bx, by, barW, barH, 2);
-  ctx.fillStyle = CFG.KEY_COLOR; roundRect(bx, by, barW * 0.72, barH, 2);
+  // HP bar (top center)
+  const barW = Math.min(w * 0.52, 260), barH = 6;
+  const bx = (w - barW) / 2, by = 16;
+  ctx.fillStyle = '#dbd9d2'; roundRect(bx, by, barW, barH, 3);
+  const hpRatio = player.hp / CFG.PLAYER_HP_MAX;
+  const hpCol = hpRatio > 0.5 ? '#3db86a' : hpRatio > 0.25 ? '#ddb830' : '#e8453c';
+  if (barW * hpRatio > 6) { ctx.fillStyle = hpCol; roundRect(bx, by, barW * hpRatio, barH, 3); }
+  ctx.fillStyle = '#888'; ctx.font = '10px -apple-system, monospace'; ctx.textAlign = 'left';
+  ctx.fillText(`HP ${player.hp} / ${CFG.PLAYER_HP_MAX}`, bx, by + barH + 13);
 
   ctx.fillStyle = '#999'; ctx.font = 'bold 13px -apple-system, monospace'; ctx.textAlign = 'right';
   ctx.fillText(`解錠 ${score}`, w - 16, 32);
 
   const alive = enemies.filter(e => e.alive).length;
-  ctx.fillStyle = '#bbb'; ctx.font = '12px -apple-system, monospace'; ctx.textAlign = 'left';
-  ctx.fillText(`トジテ ×${alive}`, 16, 32);
+  ctx.fillStyle = '#bbb'; ctx.font = '11px -apple-system, monospace'; ctx.textAlign = 'right';
+  ctx.fillText(`トジテ ×${alive}`, w - 16, 48);
 
   ctx.fillStyle = '#aaa'; ctx.font = '11px -apple-system, sans-serif'; ctx.textAlign = 'center';
   if (state === State.IDLE)
     ctx.fillText('タップ: 接続/停止  フリック: 移動', w / 2, h - 18);
   else
     ctx.fillText('内側起点フリック: 解錠  外側起点フリック: 離脱', w / 2, h - 18);
+}
+
+function renderGameOver(w, h) {
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 30px -apple-system, sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('GAME OVER', w / 2, h / 2 - 18);
+  ctx.fillStyle = '#aaa'; ctx.font = '16px -apple-system, sans-serif';
+  ctx.fillText(`解錠数: ${score}`, w / 2, h / 2 + 14);
+  ctx.fillText('まもなく再スタート…', w / 2, h / 2 + 40);
 }
 
 // ══════════════════════════════════════════════
