@@ -93,6 +93,7 @@ let beamFlash      = 0;
 let uiShake        = 0;
 let ghostTimer     = 0;
 let screenFlash    = null;
+const keyInventory = { red: 0, blue: 0, yellow: 0, green: 0, purple: 0 };
 
 // ══════════════════════════════════════════════
 //  PLAYER  (world coords)
@@ -167,6 +168,35 @@ function addEnemy() {
 const effects = [];
 function addFx(type, x, y, opts = {}) {
   effects.push({ type, x, y, age: 0, maxAge: 30, ...opts });
+}
+
+// ══════════════════════════════════════════════
+//  KEY DROPS  (world-space collectibles)
+// ══════════════════════════════════════════════
+const keyDrops = [];
+const KEY_DROP_CHANCE  = 0.35;  // probability an enemy drops a key
+const KEY_PICK_RADIUS  = 28;    // auto-collect distance
+const KEY_BOB_AMP      = 3.5;   // pixel amplitude of bob
+const KEY_BOB_SPEED    = 2.2;   // radians/s
+
+function dropKey(x, y, color) {
+  keyDrops.push({ x, y, color, age: 0 });
+}
+
+function updateKeyDrops() {
+  for (let i = keyDrops.length - 1; i >= 0; i--) {
+    const k = keyDrops[i];
+    k.age++;
+    if (Math.hypot(player.x - k.x, player.y - k.y) < KEY_PICK_RADIUS) {
+      collectKey(k.color);
+      addFx('keyCollect', k.x, k.y, { color: COLOR_HEX[k.color], maxAge: 22 });
+      keyDrops.splice(i, 1);
+    }
+  }
+}
+
+function collectKey(color) {
+  keyInventory[color] = (keyInventory[color] || 0) + 1;
 }
 
 // ══════════════════════════════════════════════
@@ -300,6 +330,7 @@ function fullyUnlock(enemy) {
   ];
   addFx('explosion', enemy.x, enemy.y, { color: hex, maxAge: 55 });
   screenFlash = { r: er, g: eg, b: eb, alpha: 0.22 };
+  if (Math.random() < KEY_DROP_CHANCE) dropKey(enemy.x, enemy.y, enemy.color);
   connectedEnemy = null;
   state          = State.IDLE;
   ghostTimer     = 0;
@@ -324,6 +355,8 @@ function emergencyEscape() {
 function resetGame() {
   enemies.length = 0;
   effects.length = 0;
+  keyDrops.length = 0;
+  for (const c of COLORS) keyInventory[c] = 0;
   score = 0; frame = 0; gameTime = 0; spawnTimer = 0;
   beamFlash = uiShake = ghostTimer = 0;
   screenFlash = null; connectedEnemy = null;
@@ -395,6 +428,8 @@ function update() {
     }
   }
 
+  updateKeyDrops();
+
   // Effects
   for (let i = effects.length - 1; i >= 0; i--) {
     if (++effects[i].age >= effects[i].maxAge) effects.splice(i, 1);
@@ -425,6 +460,7 @@ function render() {
 
   drawInfiniteGrid();
   renderEffectsWorld(t);
+  renderKeyDrops(t);
   if (state === State.CONNECTED && connectedEnemy) renderBeam(t);
   for (const e of enemies) if (e.alive) renderEnemy(e, t);
   renderPlayer(t);
@@ -507,6 +543,60 @@ function renderEffectsWorld(t) {
       ctx.globalAlpha = (1 - p) * 0.75; ctx.strokeStyle = '#ff4444'; ctx.lineWidth = 2.5;
       ctx.beginPath(); ctx.arc(e.x, e.y, p * 22, 0, Math.PI * 2); ctx.stroke();
     }
+    if (e.type === 'keyCollect') {
+      ctx.globalAlpha = (1 - p) * 0.8; ctx.strokeStyle = e.color; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(e.x, e.y, p * 28, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = (1 - p) * 0.25; ctx.fillStyle = e.color;
+      ctx.beginPath(); ctx.arc(e.x, e.y, p * 18, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+function renderKeyDrops(t) {
+  for (const k of keyDrops) {
+    const bob  = Math.sin(k.age * KEY_BOB_SPEED / 60 * Math.PI * 2) * KEY_BOB_AMP;
+    const col  = COLOR_HEX[k.color];
+    const x    = k.x, y = k.y + bob;
+    const sz   = 9;
+    const pulse = 0.75 + 0.25 * Math.sin(t * 3 + k.age * 0.08);
+
+    ctx.save();
+    ctx.translate(x, y);
+
+    // Glow
+    ctx.globalAlpha = 0.18 * pulse;
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.arc(0, 0, sz * 1.9, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Diamond shape
+    ctx.globalAlpha = 0.9 * pulse;
+    ctx.fillStyle = col;
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(0, -sz);
+    ctx.lineTo(sz * 0.65, 0);
+    ctx.lineTo(0, sz);
+    ctx.lineTo(-sz * 0.65, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 0.6 * pulse;
+    ctx.stroke();
+
+    // Inner highlight
+    ctx.globalAlpha = 0.4 * pulse;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.moveTo(0, -sz * 0.55);
+    ctx.lineTo(sz * 0.3, -sz * 0.05);
+    ctx.lineTo(0, sz * 0.15);
+    ctx.lineTo(-sz * 0.3, -sz * 0.05);
+    ctx.closePath();
+    ctx.fill();
+
     ctx.restore();
   }
 }
