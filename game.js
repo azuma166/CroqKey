@@ -190,7 +190,7 @@ function addFx(type, x, y, opts = {}) {
 //  KEY DROPS  (world-space collectibles)
 // ══════════════════════════════════════════════
 const keyDrops = [];
-const KEY_DROP_CHANCE  = 0.90;  // probability an enemy drops a key
+const KEY_DROP_CHANCE  = 1.00;  // probability an enemy drops a key
 const KEY_PICK_RADIUS  = 28;    // auto-collect distance
 const KEY_BOB_AMP      = 3.5;   // pixel amplitude of bob
 const KEY_BOB_SPEED    = 2.2;   // radians/s
@@ -1134,10 +1134,10 @@ function renderDirectionGuide(cx, cy, angle, color, lineW = 4) {
 // Returns screen-space slot descriptors for the key panel
 function keyPanelSlots() {
   const w = W(), h = H();
-  const slotR   = 20;
-  const spacing = 52;
+  const slotR   = 28;
+  const spacing = 68;
   const totalW  = (COLORS.length - 1) * spacing;
-  const panelY  = h - 52;
+  const panelY  = h - 62;
   return COLORS.map((c, i) => ({
     color: c,
     cx: w / 2 - totalW / 2 + i * spacing,
@@ -1149,14 +1149,14 @@ function keyPanelSlots() {
 function renderKeyPanel(t) {
   const w = W(), h = H();
   const slots  = keyPanelSlots();
-  const panelY = h - 52;
+  const panelY = h - 62;
 
   // Background pill
   ctx.save();
   ctx.globalAlpha = 0.72;
   ctx.fillStyle = '#1e1e1e';
-  const pw = slots[slots.length-1].cx - slots[0].cx + 64;
-  roundRect(slots[0].cx - 32, panelY - 30, pw, 70, 14);
+  const pw = slots[slots.length-1].cx - slots[0].cx + 80;
+  roundRect(slots[0].cx - 40, panelY - 38, pw, 88, 18);
   ctx.restore();
 
   for (const s of slots) {
