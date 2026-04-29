@@ -1046,7 +1046,8 @@ function renderCircularUI(t) {
   const ps = playerScreenPos();
   const cx = ps.x, cy = ps.y;
   const shakeX = uiShake > 0 ? Math.sin(uiShake * 1.8) * (uiShake / 10) * 5 : 0;
-  const keyCol = COLOR_HEX[activeKeyColor()] || CFG.KEY_COLOR;
+  const _akc   = activeKeyColor();
+  const keyCol = keyInventory[_akc] > 0 ? (COLOR_HEX[_akc] || CFG.KEY_COLOR) : '#888888';
 
   ctx.save();
   ctx.translate(shakeX, 0);
@@ -1159,17 +1160,19 @@ function renderKeyPanel(t) {
   ctx.restore();
 
   for (const s of slots) {
-    const col    = COLOR_HEX[s.color];
-    const dur    = keyInventory[s.color] || 0;
-    const active = selectedKeyColor === s.color;
-    const hasKey = dur > 0;
-    const pulse  = active ? 0.85 + 0.15 * Math.sin(t * 4) : 1;
-    const DUR_MAX = 24; // display cap for arc
+    const col     = COLOR_HEX[s.color];
+    const dur     = keyInventory[s.color] || 0;
+    const active  = selectedKeyColor === s.color;
+    const hasKey  = dur > 0;
+    // When active but empty, show grey to indicate colorless-key fallback
+    const drawCol = (active && !hasKey) ? '#888888' : col;
+    const pulse   = active ? 0.85 + 0.15 * Math.sin(t * 4) : 1;
+    const DUR_MAX = 24;
 
     ctx.save();
 
-    // Durability arc (behind slot, full circle track)
-    ctx.strokeStyle = col;
+    // Durability arc track
+    ctx.strokeStyle = drawCol;
     ctx.lineWidth   = 3;
     ctx.globalAlpha = 0.15;
     ctx.beginPath(); ctx.arc(s.cx, s.cy, s.r + 4, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2); ctx.stroke();
@@ -1178,6 +1181,7 @@ function renderKeyPanel(t) {
     if (dur > 0) {
       const ratio = Math.min(dur / DUR_MAX, 1);
       ctx.globalAlpha = active ? 0.85 * pulse : 0.5;
+      ctx.strokeStyle = drawCol;
       ctx.beginPath();
       ctx.arc(s.cx, s.cy, s.r + 4, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * ratio);
       ctx.stroke();
@@ -1185,15 +1189,15 @@ function renderKeyPanel(t) {
 
     // Active selection ring
     if (active) {
-      ctx.strokeStyle = col;
+      ctx.strokeStyle = drawCol;
       ctx.lineWidth   = 2;
       ctx.globalAlpha = 0.7 * pulse;
       ctx.beginPath(); ctx.arc(s.cx, s.cy, s.r + 9, 0, Math.PI * 2); ctx.stroke();
     }
 
     // Slot background
-    ctx.globalAlpha = hasKey ? 0.2 : 0.07;
-    ctx.fillStyle   = col;
+    ctx.globalAlpha = hasKey ? 0.2 : (active ? 0.12 : 0.07);
+    ctx.fillStyle   = drawCol;
     ctx.beginPath(); ctx.arc(s.cx, s.cy, s.r, 0, Math.PI * 2); ctx.fill();
 
     // Diamond icon
