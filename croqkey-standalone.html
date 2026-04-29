@@ -170,7 +170,7 @@ function addEnemy() {
 
   // Color-specific stats
   const colorSpeedMult = { red: 1.0, blue: 0.5, yellow: 2.0, green: 1.0, purple: 1.1 };
-  const colorHp        = { red: 6,   blue: 10,  yellow: 3,   green: 6,   purple: 6   };
+  const colorHp        = { red: 6,   blue: 8,   yellow: 3,   green: 6,   purple: 6   };
   const spdMult = colorSpeedMult[color] || 1.0;
   const hp      = colorHp[color] || CFG.ENEMY_HP;
   const spd = CFG.ENEMY_BASE_SPEED * (0.5 + Math.random() * 0.8) * spdMult;
@@ -459,7 +459,7 @@ function tryUnlock(dx, dy) {
       maxAge: crit ? 30 : 22,
       crit,
     });
-    if (crit) applyKeyEffect(keyCol, connectedEnemy);
+    applyKeyEffect(keyCol, connectedEnemy);
     if (connectedEnemy.hp <= 0) {
       fullyUnlock(connectedEnemy);
     } else {
@@ -483,8 +483,15 @@ function angleDiff(a, b) {
 // Called on crit — applies the active key's special effect
 function applyKeyEffect(keyCol, target) {
   if (keyCol === 'blue') {
-    // Slow: reduce speed to 30% for 180 frames
-    target.slowTimer = 180;
+    // Slow: area debuff — all alive enemies within radius 220
+    const SLOW_R = 220;
+    for (const e of enemies) {
+      if (!e.alive) continue;
+      if (Math.hypot(e.x - target.x, e.y - target.y) < SLOW_R) {
+        e.slowTimer = Math.max(e.slowTimer || 0, 180);
+      }
+    }
+    addFx('slowAura', target.x, target.y, { maxAge: 30, color: COLOR_HEX['blue'] });
   } else if (keyCol === 'yellow') {
     // Chain: damage the closest other alive enemy
     let closest = null, bestDist = Infinity;
@@ -798,6 +805,12 @@ function renderEffectsWorld(t) {
     if (e.type === 'dmg') {
       ctx.globalAlpha = (1 - p) * 0.75; ctx.strokeStyle = '#ff4444'; ctx.lineWidth = 2.5;
       ctx.beginPath(); ctx.arc(e.x, e.y, p * 22, 0, Math.PI * 2); ctx.stroke();
+    }
+    if (e.type === 'slowAura') {
+      ctx.globalAlpha = (1 - p) * 0.55; ctx.strokeStyle = e.color; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(e.x, e.y, p * 220, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = (1 - p) * 0.12; ctx.fillStyle = e.color;
+      ctx.beginPath(); ctx.arc(e.x, e.y, p * 220, 0, Math.PI * 2); ctx.fill();
     }
     if (e.type === 'healAura') {
       ctx.globalAlpha = (1 - p) * 0.35; ctx.strokeStyle = e.color; ctx.lineWidth = 1.5;
