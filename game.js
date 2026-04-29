@@ -18,7 +18,9 @@ const CFG = {
   GHOST_FRAMES:       90,
   UNLOCK_TOLERANCE:  Math.PI / 4,
   PLAYER_HP_MAX:     10,
-  HIT_COOLDOWN:      90,   // invincibility frames after damage
+  HIT_COOLDOWN:      90,
+  SPAWN_INTERVAL:   480,   // frames between trickle spawns (~8s)
+  ENEMY_COUNT_MAX:  14,    // hard cap
 };
 
 // ══════════════════════════════════════════════
@@ -59,6 +61,8 @@ let state          = State.IDLE;
 let connectedEnemy = null;
 let score          = 0;
 let frame          = 0;
+let gameTime       = 0;   // seconds elapsed
+let spawnTimer     = 0;
 let beamFlash      = 0;
 let uiShake        = 0;
 let ghostTimer     = 0;
@@ -93,6 +97,9 @@ function spawnEnemies() {
   enemies.length = 0;
   for (let i = 0; i < CFG.ENEMY_COUNT; i++) addEnemy();
 }
+
+// single enemy spawn used by trickle system
+function spawnEnemy() { addEnemy(); }
 
 function addEnemy() {
   let x, y, tries = 0;
@@ -265,7 +272,7 @@ function emergencyEscape() {
 function resetGame() {
   enemies.length = 0;
   effects.length = 0;
-  score = 0; frame = 0;
+  score = 0; frame = 0; gameTime = 0; spawnTimer = 0;
   beamFlash = uiShake = ghostTimer = 0;
   screenFlash = null; connectedEnemy = null;
   state = State.IDLE;
@@ -279,6 +286,7 @@ function resetGame() {
 function update() {
   if (state === State.GAMEOVER) return;
   frame++;
+  gameTime = frame / 60;
   const sf = state === State.CONNECTED ? CFG.SLOW_FACTOR : 1.0;
 
   // Player
@@ -320,6 +328,18 @@ function update() {
           setTimeout(resetGame, 3000);
         }
       }
+    }
+  }
+
+  // Continuous enemy trickle
+  {
+    const alive    = enemies.filter(e => e.alive).length;
+    const maxCount = Math.min(CFG.ENEMY_COUNT_MAX, CFG.ENEMY_COUNT + Math.floor(gameTime / 30));
+    const interval = Math.max(180, CFG.SPAWN_INTERVAL - Math.floor(gameTime / 20) * 40);
+    spawnTimer++;
+    if (spawnTimer >= interval && alive < maxCount) {
+      spawnEnemy();
+      spawnTimer = 0;
     }
   }
 
@@ -641,6 +661,8 @@ function renderHUD(w, h) {
 
   ctx.fillStyle = '#999'; ctx.font = 'bold 13px -apple-system, monospace'; ctx.textAlign = 'right';
   ctx.fillText(`解錠 ${score}`, w - 16, 32);
+  ctx.fillStyle = '#bbb'; ctx.font = '11px -apple-system, monospace'; ctx.textAlign = 'left';
+  ctx.fillText(`${Math.floor(gameTime)}s`, 16, 30);
 
   const alive = enemies.filter(e => e.alive).length;
   ctx.fillStyle = '#bbb'; ctx.font = '11px -apple-system, monospace'; ctx.textAlign = 'right';
