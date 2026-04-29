@@ -25,8 +25,21 @@ const COLOR_HEX = {
   green:  '#3db86a',
   purple: '#9844e8',
 };
-// Seconds at which each color starts appearing
-const COLOR_UNLOCK = { red: 0, blue: 25, yellow: 55, green: 90, purple: 130 };
+// Phase table: time (seconds) → which colors can spawn
+// New color introduced with only red, then previous colors gradually return
+const COLOR_PHASES = [
+  { t:   0, colors: ['red'] },
+  { t:  60, colors: ['red', 'blue'] },
+  { t: 120, colors: ['red', 'yellow'] },
+  { t: 180, colors: ['red', 'blue', 'yellow'] },
+  { t: 240, colors: ['red', 'green'] },
+  { t: 300, colors: ['red', 'blue', 'green'] },
+  { t: 360, colors: ['red', 'blue', 'yellow', 'green'] },
+  { t: 420, colors: ['red', 'purple'] },
+  { t: 480, colors: ['red', 'blue', 'purple'] },
+  { t: 540, colors: ['red', 'blue', 'yellow', 'purple'] },
+  { t: 600, colors: ['red', 'blue', 'yellow', 'green', 'purple'] },
+];
 
 const CFG = {
   PLAYER_R:          13,
@@ -133,7 +146,12 @@ function spawnEnemies() {
 function spawnEnemy() { addEnemy(); }
 
 function availableColors() {
-  return COLORS.filter(c => gameTime >= COLOR_UNLOCK[c]);
+  let phase = COLOR_PHASES[0];
+  for (const p of COLOR_PHASES) {
+    if (gameTime >= p.t) phase = p;
+    else break;
+  }
+  return phase.colors;
 }
 
 function addEnemy() {
