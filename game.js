@@ -135,7 +135,11 @@ function addEnemy() {
 
   const cols = availableColors();
   const color = cols[Math.floor(Math.random() * cols.length)];
-  const spd = CFG.ENEMY_BASE_SPEED * (0.5 + Math.random() * 0.8);
+
+  // Color-specific speed multiplier
+  const colorSpeedMult = { red: 1.0, blue: 0.5, yellow: 2.0, green: 1.0, purple: 1.1 };
+  const spdMult = colorSpeedMult[color] || 1.0;
+  const spd = CFG.ENEMY_BASE_SPEED * (0.5 + Math.random() * 0.8) * spdMult;
   const ang = Math.random() * Math.PI * 2;
   enemies.push({
     x, y,
@@ -150,6 +154,7 @@ function addEnemy() {
     alive: true,
     crackShake: 0,
     slowTimer: 0,
+    healAuraTimer: 0,
   });
 }
 
@@ -399,6 +404,26 @@ function fullyUnlock(enemy) {
   addFx('explosion', enemy.x, enemy.y, { color: hex, maxAge: 55 });
   screenFlash = { r: er, g: eg, b: eb, alpha: 0.22 };
   if (Math.random() < KEY_DROP_CHANCE) dropKey(enemy.x, enemy.y, enemy.color);
+
+  // Purple: death explosion — damages player if within 150px
+  if (enemy.color === 'purple') {
+    const PURP_R = 150;
+    addFx('bomb', enemy.x, enemy.y, { maxAge: 35, color: COLOR_HEX['purple'] });
+    if (player.invincible <= 0 && Math.hypot(player.x - enemy.x, player.y - enemy.y) < PURP_R) {
+      player.hp = Math.max(0, player.hp - 1);
+      player.invincible = CFG.HIT_COOLDOWN;
+      player.hitFlash   = 22;
+      addFx('dmg', player.x, player.y, { maxAge: 25 });
+      if (player.hp <= 0) {
+        player.hp = 0;
+        state = State.GAMEOVER;
+        connectedEnemy = null;
+        setTimeout(resetGame, 3000);
+        return;
+      }
+    }
+  }
+
   connectedEnemy = null;
   state          = State.IDLE;
   ghostTimer     = 0;
@@ -469,6 +494,22 @@ function update() {
     const spd = Math.hypot(e.vx, e.vy);
     if (spd > e.maxSpd) { e.vx = (e.vx / spd) * e.maxSpd; e.vy = (e.vy / spd) * e.maxSpd; }
     if (e.crackShake > 0) e.crackShake--;
+
+    // Green: healer aura — restore 1 HP to nearby enemies every 120 frames
+    if (e.color === 'green') {
+      e.healAuraTimer = (e.healAuraTimer || 0) + 1;
+      if (e.healAuraTimer >= 120) {
+        e.healAuraTimer = 0;
+        for (const other of enemies) {
+          if (!other.alive || other === e) continue;
+          if (Math.hypot(other.x - e.x, other.y - e.y) < 200 && other.hp < other.maxHp) {
+            other.hp++;
+            addFx('heal', other.x, other.y, { maxAge: 28 });
+          }
+        }
+        addFx('healAura', e.x, e.y, { maxAge: 35, color: COLOR_HEX['green'] });
+      }
+    }
 
     // Contact damage
     if (player.invincible <= 0) {
@@ -616,6 +657,12 @@ function renderEffectsWorld(t) {
       ctx.globalAlpha = (1 - p) * 0.75; ctx.strokeStyle = '#ff4444'; ctx.lineWidth = 2.5;
       ctx.beginPath(); ctx.arc(e.x, e.y, p * 22, 0, Math.PI * 2); ctx.stroke();
     }
+    if (e.type === 'healAura') {
+      ctx.globalAlpha = (1 - p) * 0.35; ctx.strokeStyle = e.color; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(e.x, e.y, p * 200, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = (1 - p) * 0.08; ctx.fillStyle = e.color;
+      ctx.beginPath(); ctx.arc(e.x, e.y, p * 200, 0, Math.PI * 2); ctx.fill();
+    }
     if (e.type === 'chain') {
       // Line arc from source to target
       ctx.globalAlpha = (1 - p) * 0.85; ctx.strokeStyle = e.color; ctx.lineWidth = 2;
@@ -749,6 +796,24 @@ function renderEnemy(e, t) {
       ctx.beginPath(); ctx.arc(0, 0, e.r + 12, 0, Math.PI * 2); ctx.stroke();
       ctx.globalAlpha = 1;
     }
+  }
+
+  // Green healer: persistent aura ring
+  if (e.color === 'green') {
+    ctx.globalAlpha = 0.12 + 0.06 * Math.sin(t * 2.5 + (e.healAuraTimer || 0) * 0.1);
+    ctx.strokeStyle = ecol; ctx.lineWidth = 1.2; ctx.setLineDash([4, 6]);
+    ctx.beginPath(); ctx.arc(0, 0, 200, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+  }
+
+  // Purple: warning pulse showing blast radius
+  if (e.color === 'purple') {
+    ctx.globalAlpha = 0.07 + 0.05 * Math.sin(t * 5);
+    ctx.strokeStyle = ecol; ctx.lineWidth = 1.5; ctx.setLineDash([2, 5]);
+    ctx.beginPath(); ctx.arc(0, 0, 150, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
   }
 
   // Slow frost ring
