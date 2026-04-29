@@ -23,7 +23,7 @@ const CFG = {
   ENEMY_COUNT:        6,
   ENEMY_BASE_SPEED:   0.9,
   SLOW_FACTOR:        0.25,
-  FRICTION:           0.92,   // high inertia
+  FRICTION:           0.97,   // high inertia
   MAX_SPEED:          20,
   FLICK_MIN:          16,
   INNER_R:            62,
@@ -116,6 +116,7 @@ function addEnemy() {
     x, y,
     vx: Math.cos(ang) * spd,
     vy: Math.sin(ang) * spd,
+    maxSpd: spd * 1.4,
     r:  CFG.ENEMY_R,
     hp: CFG.ENEMY_HP,
     maxHp: CFG.ENEMY_HP,
@@ -290,18 +291,13 @@ function update() {
     if (!e.alive) continue;
     e.x += e.vx * sf;
     e.y += e.vy * sf;
-    // Soft leash: steer back if strayed too far from player
-    const d = Math.hypot(e.x - player.x, e.y - player.y);
-    if (d > 1200) {
-      const a = Math.atan2(player.y - e.y, player.x - e.x);
-      e.vx += Math.cos(a) * 0.06;
-      e.vy += Math.sin(a) * 0.06;
-      const spd = Math.hypot(e.vx, e.vy);
-      if (spd > CFG.ENEMY_BASE_SPEED * 1.5) {
-        e.vx = (e.vx / spd) * CFG.ENEMY_BASE_SPEED * 1.5;
-        e.vy = (e.vy / spd) * CFG.ENEMY_BASE_SPEED * 1.5;
-      }
-    }
+    // Steer toward player
+    const a = Math.atan2(player.y - e.y, player.x - e.x);
+    e.vx += Math.cos(a) * 0.04;
+    e.vy += Math.sin(a) * 0.04;
+    // Cap speed
+    const spd = Math.hypot(e.vx, e.vy);
+    if (spd > e.maxSpd) { e.vx = (e.vx / spd) * e.maxSpd; e.vy = (e.vy / spd) * e.maxSpd; }
     if (e.crackShake > 0) e.crackShake--;
   }
 
