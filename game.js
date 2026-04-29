@@ -390,8 +390,8 @@ function pointerUp(sx, sy) {
         tryUnlock(dx, dy);
       }
     } else {
-      // Started outside inner ring → emergency escape
-      emergencyEscape();
+      // Started outside inner ring → disconnect and move in flick direction
+      emergencyEscape(dx, dy, dt);
     }
   }
 
@@ -559,15 +559,14 @@ function fullyUnlock(enemy) {
   if (enemies.every(e => !e.alive)) setTimeout(() => spawnEnemies(), 1200);
 }
 
-function emergencyEscape() {
-  if (connectedEnemy) {
-    const dx = player.x - connectedEnemy.x;
-    const dy = player.y - connectedEnemy.y;
-    const len = Math.hypot(dx, dy) || 1;
-    player.vx = (dx / len) * 5;
-    player.vy = (dy / len) * 5;
+function emergencyEscape(dx, dy, dt) {
+  const dist = Math.hypot(dx, dy);
+  if (dist >= CFG.FLICK_MIN) {
+    const spd = Math.min(dist / dt * 12, CFG.MAX_SPEED);
+    const a   = Math.atan2(dy, dx);
+    player.vx = Math.cos(a) * spd;
+    player.vy = Math.sin(a) * spd;
   }
-  player.invincible = 14;
   addFx('escape', player.x, player.y, { maxAge: 22 });
   connectedEnemy = null;
   state          = State.IDLE;
@@ -1039,14 +1038,7 @@ function renderCircularUI(t) {
   ctx.save();
   ctx.translate(shakeX, 0);
 
-  // Outer ring (escape zone)
-  ctx.strokeStyle = 'rgba(200,68,68,0.42)'; ctx.lineWidth = 1.5; ctx.setLineDash([9, 6]);
-  ctx.beginPath(); ctx.arc(cx, cy, CFG.OUTER_R, 0, Math.PI * 2); ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.fillStyle = 'rgba(200,68,68,0.04)';
-  ctx.beginPath(); ctx.arc(cx, cy, CFG.OUTER_R, 0, Math.PI * 2); ctx.fill();
-
-  // Inner ring (unlock zone) — active key color
+  // Inner ring (unlock zone) — active key color, no outer escape ring
   const dashOff = -(t * 0.55 % 1) * 20;
   ctx.globalAlpha = 1.0; ctx.strokeStyle = keyCol; ctx.lineWidth = 3.5;
   ctx.setLineDash([13, 7]); ctx.lineDashOffset = dashOff;
@@ -1056,22 +1048,23 @@ function renderCircularUI(t) {
   ctx.beginPath(); ctx.arc(cx, cy, CFG.INNER_R, 0, Math.PI * 2); ctx.fill();
   ctx.globalAlpha = 1;
 
-  // Direction guides: current + 2 predictions
+  // Direction guides: show only as many arrows as hits remaining to kill
   if (connectedEnemy) {
-    const q = connectedEnemy.angleQueue;
+    const q    = connectedEnemy.angleQueue;
+    const hasKey  = keyInventory[activeKeyColor()] > 0;
+    const dmg     = (hasKey && activeKeyColor() === connectedEnemy.color) ? 2 : 1;
+    const hitsLeft = Math.ceil(connectedEnemy.hp / dmg);
+    const show    = Math.min(hitsLeft, 3);
     const ghostAlpha = ghostTimer > 0 ? Math.min(ghostTimer / 25, 1) : 0.55;
 
-    // 2nd prediction (faint)
-    if (q.length > 2) {
+    if (show >= 3 && q.length > 2) {
       ctx.globalAlpha = 0.25;
       renderDirectionGuide(cx, cy, q[2], keyCol, 2);
     }
-    // 1st prediction (medium)
-    if (q.length > 1) {
+    if (show >= 2 && q.length > 1) {
       ctx.globalAlpha = 0.52;
       renderDirectionGuide(cx, cy, q[1], keyCol, 3);
     }
-    // Current (full brightness)
     ctx.globalAlpha = ghostAlpha;
     renderDirectionGuide(cx, cy, q[0], keyCol, 5);
     ctx.globalAlpha = 1;
@@ -1079,8 +1072,7 @@ function renderCircularUI(t) {
 
   ctx.fillStyle = 'rgba(110,108,103,0.55)';
   ctx.font = '11px -apple-system, "Helvetica Neue", sans-serif'; ctx.textAlign = 'center';
-  ctx.fillText('内側を起点にフリック: 解錠', cx, cy + CFG.OUTER_R + 18);
-  ctx.fillText('外側を起点にフリック: 離脱', cx, cy + CFG.OUTER_R + 33);
+  ctx.fillText('円内フリック: 解錠  円外フリック: 離脱＆移動', cx, cy + CFG.INNER_R + 22);
 
   ctx.restore();
 }
