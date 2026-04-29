@@ -26,7 +26,10 @@ const CFG = {
   INNER_R:            62,
   OUTER_R:           180,
   KEY_COLOR:         '#e8453c',
-  ENEMY_HP:           3,
+  ENEMY_HP:           6,
+  KEY_DROP_DUR:       8,   // durability added per key pickup
+  DUR_COST_NORMAL:    2,   // durability spent on non-crit hit
+  DUR_COST_CRIT:      1,   // durability spent on crit hit
   GHOST_FRAMES:       90,
   UNLOCK_TOLERANCE:  Math.PI / 4,
   PLAYER_HP_MAX:     10,
@@ -79,7 +82,8 @@ let beamFlash      = 0;
 let uiShake        = 0;
 let ghostTimer     = 0;
 let screenFlash    = null;
-const keyInventory = { red: 3, blue: 0, yellow: 0, green: 0, purple: 0 };
+// keyInventory stores durability totals, not counts
+const keyInventory = { red: 16, blue: 0, yellow: 0, green: 0, purple: 0 };
 
 // ══════════════════════════════════════════════
 //  PLAYER  (world coords)
@@ -182,7 +186,7 @@ function updateKeyDrops() {
 }
 
 function collectKey(color) {
-  keyInventory[color] = (keyInventory[color] || 0) + 1;
+  keyInventory[color] = (keyInventory[color] || 0) + CFG.KEY_DROP_DUR;
 }
 
 // ══════════════════════════════════════════════
@@ -292,9 +296,17 @@ function tryUnlock(dx, dy) {
   const diff = angleDiff(flickAngle, connectedEnemy.requiredAngle);
   if (Math.abs(diff) < CFG.UNLOCK_TOLERANCE) {
     const keyCol = activeKeyColor();
-    const crit   = keyCol === connectedEnemy.color;
-    const dmg    = crit ? 2 : 1;
+    if (keyInventory[keyCol] <= 0) {
+      // No durability — treat as failed attempt
+      uiShake = 14;
+      addFx('noDur', player.x, player.y, { maxAge: 22, color: COLOR_HEX[keyCol] });
+      return;
+    }
+    const crit    = keyCol === connectedEnemy.color;
+    const dmg     = crit ? 2 : 1;
+    const durCost = crit ? CFG.DUR_COST_CRIT : CFG.DUR_COST_NORMAL;
 
+    keyInventory[keyCol] = Math.max(0, keyInventory[keyCol] - durCost);
     connectedEnemy.hp -= dmg;
     connectedEnemy.crackShake = 18;
     beamFlash = 8;
@@ -357,7 +369,7 @@ function resetGame() {
   effects.length = 0;
   keyDrops.length = 0;
   for (const c of COLORS) keyInventory[c] = 0;
-  keyInventory.red = 3;
+  keyInventory.red = 16;
   score = 0; frame = 0; gameTime = 0; spawnTimer = 0;
   beamFlash = uiShake = ghostTimer = 0;
   screenFlash = null; connectedEnemy = null;
@@ -545,6 +557,11 @@ function renderEffectsWorld(t) {
     if (e.type === 'dmg') {
       ctx.globalAlpha = (1 - p) * 0.75; ctx.strokeStyle = '#ff4444'; ctx.lineWidth = 2.5;
       ctx.beginPath(); ctx.arc(e.x, e.y, p * 22, 0, Math.PI * 2); ctx.stroke();
+    }
+    if (e.type === 'noDur') {
+      ctx.globalAlpha = (1 - p) * 0.7; ctx.strokeStyle = e.color; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(e.x - 10, e.y - 10); ctx.lineTo(e.x + 10, e.y + 10); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(e.x + 10, e.y - 10); ctx.lineTo(e.x - 10, e.y + 10); ctx.stroke();
     }
     if (e.type === 'keyCollect') {
       ctx.globalAlpha = (1 - p) * 0.8; ctx.strokeStyle = e.color; ctx.lineWidth = 2;
@@ -834,28 +851,44 @@ function renderKeyPanel(t) {
   ctx.globalAlpha = 0.72;
   ctx.fillStyle = '#1e1e1e';
   const pw = slots[slots.length-1].cx - slots[0].cx + 64;
-  roundRect(slots[0].cx - 32, panelY - 28, pw, 56, 14);
+  roundRect(slots[0].cx - 32, panelY - 30, pw, 70, 14);
   ctx.restore();
 
   for (const s of slots) {
-    const col     = COLOR_HEX[s.color];
-    const count   = keyInventory[s.color] || 0;
-    const active  = selectedKeyColor === s.color;
-    const hasKey  = count > 0;
-    const pulse   = active ? 0.85 + 0.15 * Math.sin(t * 4) : 1;
+    const col    = COLOR_HEX[s.color];
+    const dur    = keyInventory[s.color] || 0;
+    const active = selectedKeyColor === s.color;
+    const hasKey = dur > 0;
+    const pulse  = active ? 0.85 + 0.15 * Math.sin(t * 4) : 1;
+    const DUR_MAX = 24; // display cap for arc
 
     ctx.save();
 
-    // Outer ring (active highlight)
+    // Durability arc (behind slot, full circle track)
+    ctx.strokeStyle = col;
+    ctx.lineWidth   = 3;
+    ctx.globalAlpha = 0.15;
+    ctx.beginPath(); ctx.arc(s.cx, s.cy, s.r + 4, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2); ctx.stroke();
+
+    // Filled arc for remaining durability
+    if (dur > 0) {
+      const ratio = Math.min(dur / DUR_MAX, 1);
+      ctx.globalAlpha = active ? 0.85 * pulse : 0.5;
+      ctx.beginPath();
+      ctx.arc(s.cx, s.cy, s.r + 4, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * ratio);
+      ctx.stroke();
+    }
+
+    // Active selection ring
     if (active) {
       ctx.strokeStyle = col;
-      ctx.lineWidth   = 2.5;
-      ctx.globalAlpha = 0.9 * pulse;
-      ctx.beginPath(); ctx.arc(s.cx, s.cy, s.r + 5, 0, Math.PI * 2); ctx.stroke();
+      ctx.lineWidth   = 2;
+      ctx.globalAlpha = 0.7 * pulse;
+      ctx.beginPath(); ctx.arc(s.cx, s.cy, s.r + 9, 0, Math.PI * 2); ctx.stroke();
     }
 
     // Slot background
-    ctx.globalAlpha = hasKey ? 0.18 : 0.07;
+    ctx.globalAlpha = hasKey ? 0.2 : 0.07;
     ctx.fillStyle   = col;
     ctx.beginPath(); ctx.arc(s.cx, s.cy, s.r, 0, Math.PI * 2); ctx.fill();
 
@@ -865,29 +898,29 @@ function renderKeyPanel(t) {
       ctx.globalAlpha = active ? 0.95 * pulse : 0.65;
       ctx.fillStyle   = col;
       ctx.beginPath();
-      ctx.moveTo(s.cx,      s.cy - sz);
-      ctx.lineTo(s.cx + sz * 0.65, s.cy);
-      ctx.lineTo(s.cx,      s.cy + sz);
-      ctx.lineTo(s.cx - sz * 0.65, s.cy);
+      ctx.moveTo(s.cx,               s.cy - sz);
+      ctx.lineTo(s.cx + sz * 0.65,   s.cy);
+      ctx.lineTo(s.cx,               s.cy + sz);
+      ctx.lineTo(s.cx - sz * 0.65,   s.cy);
       ctx.closePath();
       ctx.fill();
       ctx.globalAlpha = active ? 0.5 * pulse : 0.25;
       ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
       ctx.stroke();
     } else {
-      // Empty circle
-      ctx.globalAlpha = 0.25;
+      // Empty slot indicator
+      ctx.globalAlpha = 0.22;
       ctx.strokeStyle = col; ctx.lineWidth = 1.2;
       ctx.beginPath(); ctx.arc(s.cx, s.cy, 7, 0, Math.PI * 2); ctx.stroke();
     }
 
-    // Count badge
-    if (count > 1) {
-      ctx.globalAlpha = 0.9;
-      ctx.fillStyle   = '#fff';
-      ctx.font        = 'bold 10px -apple-system, monospace';
+    // Durability number
+    if (dur > 0) {
+      ctx.globalAlpha = active ? 0.95 : 0.65;
+      ctx.fillStyle   = dur <= CFG.DUR_COST_NORMAL ? '#ff8888' : '#fff';
+      ctx.font        = `bold ${dur >= 10 ? 9 : 10}px -apple-system, monospace`;
       ctx.textAlign   = 'center';
-      ctx.fillText(count, s.cx + s.r * 0.6, s.cy - s.r * 0.55);
+      ctx.fillText(dur, s.cx, s.cy + s.r + 16);
     }
 
     ctx.restore();
