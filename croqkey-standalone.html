@@ -150,9 +150,11 @@ function addEnemy() {
   const cols = availableColors();
   const color = cols[Math.floor(Math.random() * cols.length)];
 
-  // Color-specific speed multiplier
+  // Color-specific stats
   const colorSpeedMult = { red: 1.0, blue: 0.5, yellow: 2.0, green: 1.0, purple: 1.1 };
+  const colorHp        = { red: 6,   blue: 10,  yellow: 3,   green: 6,   purple: 6   };
   const spdMult = colorSpeedMult[color] || 1.0;
+  const hp      = colorHp[color] || CFG.ENEMY_HP;
   const spd = CFG.ENEMY_BASE_SPEED * (0.5 + Math.random() * 0.8) * spdMult;
   const ang = Math.random() * Math.PI * 2;
   enemies.push({
@@ -161,8 +163,8 @@ function addEnemy() {
     vy: Math.sin(ang) * spd,
     maxSpd: spd * 1.4,
     r:  CFG.ENEMY_R,
-    hp: CFG.ENEMY_HP,
-    maxHp: CFG.ENEMY_HP,
+    hp,
+    maxHp: hp,
     color,
     requiredAngle: randomAngle(),
     alive: true,
