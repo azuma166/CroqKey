@@ -12,10 +12,11 @@ const CFG = {
   MAX_SPEED:          20,
   FLICK_MIN:          16,
   INNER_R:            62,
-  OUTER_R:            98,
+  OUTER_R:           180,   // much larger escape zone visual
   KEY_COLOR:         '#e8453c',
   ENEMY_HP:           3,
   GHOST_FRAMES:       90,
+  UNLOCK_TOLERANCE:  Math.PI / 4,  // ±45° — acceptable flick angle range
 };
 
 // ══════════════════════════════════════════════
@@ -76,7 +77,7 @@ function initPlayer() {
 //  ENEMIES  (world coords)
 // ══════════════════════════════════════════════
 const enemies = [];
-const DIRS    = ['right', 'left', 'up', 'down'];
+function randomAngle() { return Math.random() * Math.PI * 2; }
 
 function spawnEnemies() {
   enemies.length = 0;
@@ -103,7 +104,7 @@ function addEnemy() {
     r:  CFG.ENEMY_R,
     hp: CFG.ENEMY_HP,
     maxHp: CFG.ENEMY_HP,
-    requiredDir: DIRS[Math.floor(Math.random() * DIRS.length)],
+    requiredAngle: randomAngle(),
     alive: true,
     crackShake: 0,
   });
@@ -201,10 +202,13 @@ function connectEnemy(enemy) {
 
 function tryUnlock(dx, dy) {
   if (!connectedEnemy) return;
-  if (flickDir(dx, dy) === connectedEnemy.requiredDir) {
+  const flickAngle = Math.atan2(dy, dx);
+  const diff = angleDiff(flickAngle, connectedEnemy.requiredAngle);
+  if (Math.abs(diff) < CFG.UNLOCK_TOLERANCE) {
     connectedEnemy.hp--;
     connectedEnemy.crackShake = 18;
     beamFlash = 8;
+    connectedEnemy.requiredAngle = randomAngle(); // new direction each hit
     addFx('hit', connectedEnemy.x, connectedEnemy.y, { color: CFG.KEY_COLOR, maxAge: 22 });
     if (connectedEnemy.hp <= 0) fullyUnlock(connectedEnemy);
     else ghostTimer = CFG.GHOST_FRAMES;
@@ -212,6 +216,13 @@ function tryUnlock(dx, dy) {
     uiShake = 10;
     addFx('miss', player.x, player.y, { maxAge: 16 });
   }
+}
+
+function angleDiff(a, b) {
+  let d = a - b;
+  while (d >  Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return d;
 }
 
 function fullyUnlock(enemy) {
@@ -240,13 +251,6 @@ function emergencyEscape() {
   ghostTimer     = 0;
 }
 
-function flickDir(dx, dy) {
-  const a = Math.atan2(dy, dx) * 180 / Math.PI;
-  if (a > -45  && a <=  45)  return 'right';
-  if (a >  45  && a <= 135)  return 'down';
-  if (a > 135  || a <= -135) return 'left';
-  return 'up';
-}
 
 // ══════════════════════════════════════════════
 //  UPDATE
@@ -520,7 +524,7 @@ function renderCircularUI(t) {
   // Ghost direction guide
   if (ghostTimer > 0 && connectedEnemy) {
     ctx.globalAlpha = Math.min(ghostTimer / 25, 1) * 0.58;
-    renderDirectionGuide(cx, cy, connectedEnemy.requiredDir);
+    renderDirectionGuide(cx, cy, connectedEnemy.requiredAngle);
     ctx.globalAlpha = 1;
   }
 
@@ -532,18 +536,28 @@ function renderCircularUI(t) {
   ctx.restore();
 }
 
-function renderDirectionGuide(cx, cy, dir) {
-  const angles = { right: 0, left: Math.PI, up: -Math.PI / 2, down: Math.PI / 2 };
-  const a  = angles[dir] ?? 0;
+function renderDirectionGuide(cx, cy, angle) {
   const len = CFG.INNER_R * 0.62;
-  const ex = cx + Math.cos(a) * len, ey = cy + Math.sin(a) * len;
+  const ex  = cx + Math.cos(angle) * len;
+  const ey  = cy + Math.sin(angle) * len;
+
+  // Tolerance arc (faint fan showing ±45° range)
+  ctx.strokeStyle = CFG.KEY_COLOR; ctx.lineWidth = 1; ctx.fillStyle = CFG.KEY_COLOR;
+  ctx.globalAlpha *= 0.25;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.arc(cx, cy, CFG.INNER_R * 0.55, angle - CFG.UNLOCK_TOLERANCE, angle + CFG.UNLOCK_TOLERANCE);
+  ctx.closePath(); ctx.fill();
+  ctx.globalAlpha /= 0.25;
+
+  // Arrow
   ctx.strokeStyle = CFG.KEY_COLOR; ctx.fillStyle = CFG.KEY_COLOR; ctx.lineWidth = 2.8; ctx.lineCap = 'round';
-  ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * 10, cy + Math.sin(a) * 10); ctx.lineTo(ex, ey); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx + Math.cos(angle) * 10, cy + Math.sin(angle) * 10); ctx.lineTo(ex, ey); ctx.stroke();
   const hw = Math.PI / 5.5;
   ctx.beginPath();
   ctx.moveTo(ex, ey);
-  ctx.lineTo(ex - Math.cos(a - hw) * 14, ey - Math.sin(a - hw) * 14);
-  ctx.lineTo(ex - Math.cos(a + hw) * 14, ey - Math.sin(a + hw) * 14);
+  ctx.lineTo(ex - Math.cos(angle - hw) * 14, ey - Math.sin(angle - hw) * 14);
+  ctx.lineTo(ex - Math.cos(angle + hw) * 14, ey - Math.sin(angle + hw) * 14);
   ctx.closePath(); ctx.fill();
 }
 
