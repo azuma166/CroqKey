@@ -163,6 +163,7 @@ function addEnemy() {
     requiredAngle: randomAngle(),
     alive: true,
     crackShake: 0,
+    slowTimer: 0,
   });
 }
 
@@ -330,6 +331,7 @@ function tryUnlock(dx, dy) {
       maxAge: crit ? 30 : 22,
       crit,
     });
+    if (crit) applyKeyEffect(keyCol, connectedEnemy);
     if (connectedEnemy.hp <= 0) fullyUnlock(connectedEnemy);
     else ghostTimer = CFG.GHOST_FRAMES;
   } else {
@@ -343,6 +345,60 @@ function angleDiff(a, b) {
   while (d >  Math.PI) d -= Math.PI * 2;
   while (d < -Math.PI) d += Math.PI * 2;
   return d;
+}
+
+// Called on crit — applies the active key's special effect
+function applyKeyEffect(keyCol, target) {
+  if (keyCol === 'blue') {
+    // Slow: reduce speed to 30% for 180 frames
+    target.slowTimer = 180;
+  } else if (keyCol === 'yellow') {
+    // Chain: damage the closest other alive enemy
+    let closest = null, bestDist = Infinity;
+    for (const e of enemies) {
+      if (!e.alive || e === target) continue;
+      const d = Math.hypot(e.x - target.x, e.y - target.y);
+      if (d < bestDist) { bestDist = d; closest = e; }
+    }
+    if (closest) {
+      closest.hp = Math.max(0, closest.hp - 1);
+      closest.crackShake = 12;
+      addFx('chain', closest.x, closest.y, {
+        color: COLOR_HEX['yellow'],
+        fromX: target.x, fromY: target.y,
+        maxAge: 28,
+      });
+      if (closest.hp <= 0) {
+        // Chain kill — resolve without changing connected state
+        closest.alive = false;
+        score++;
+        if (Math.random() < KEY_DROP_CHANCE) dropKey(closest.x, closest.y, closest.color);
+        addFx('explosion', closest.x, closest.y, { color: COLOR_HEX[closest.color], maxAge: 45 });
+      }
+    }
+  } else if (keyCol === 'green') {
+    // Heal player +1 HP
+    player.hp = Math.min(CFG.PLAYER_HP_MAX, player.hp + 1);
+    addFx('heal', player.x, player.y, { maxAge: 35 });
+  } else if (keyCol === 'purple') {
+    // Bomb: 1 damage to all alive enemies within radius 160
+    const BOMB_R = 160;
+    addFx('bomb', target.x, target.y, { maxAge: 40, color: COLOR_HEX['purple'] });
+    for (const e of enemies) {
+      if (!e.alive || e === target) continue;
+      if (Math.hypot(e.x - target.x, e.y - target.y) < BOMB_R) {
+        e.hp = Math.max(0, e.hp - 1);
+        e.crackShake = 10;
+        if (e.hp <= 0) {
+          e.alive = false;
+          score++;
+          if (Math.random() < KEY_DROP_CHANCE) dropKey(e.x, e.y, e.color);
+          addFx('explosion', e.x, e.y, { color: COLOR_HEX[e.color], maxAge: 45 });
+        }
+      }
+    }
+  }
+  // red: no special effect (シンプル)
 }
 
 function fullyUnlock(enemy) {
@@ -417,8 +473,10 @@ function update() {
   // Enemies
   for (const e of enemies) {
     if (!e.alive) continue;
-    e.x += e.vx * sf;
-    e.y += e.vy * sf;
+    const slowMult = (e.slowTimer > 0) ? 0.3 : 1.0;
+    if (e.slowTimer > 0) e.slowTimer--;
+    e.x += e.vx * sf * slowMult;
+    e.y += e.vy * sf * slowMult;
     const a = Math.atan2(player.y - e.y, player.x - e.x);
     e.vx += Math.cos(a) * 0.04;
     e.vy += Math.sin(a) * 0.04;
@@ -572,6 +630,26 @@ function renderEffectsWorld(t) {
       ctx.globalAlpha = (1 - p) * 0.75; ctx.strokeStyle = '#ff4444'; ctx.lineWidth = 2.5;
       ctx.beginPath(); ctx.arc(e.x, e.y, p * 22, 0, Math.PI * 2); ctx.stroke();
     }
+    if (e.type === 'chain') {
+      // Line arc from source to target
+      ctx.globalAlpha = (1 - p) * 0.85; ctx.strokeStyle = e.color; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(e.fromX, e.fromY); ctx.lineTo(e.x, e.y); ctx.stroke();
+      ctx.globalAlpha = (1 - p) * 0.6;
+      ctx.beginPath(); ctx.arc(e.x, e.y, p * 20, 0, Math.PI * 2); ctx.stroke();
+    }
+    if (e.type === 'heal') {
+      const col = COLOR_HEX['green'];
+      ctx.globalAlpha = (1 - p) * 0.8; ctx.strokeStyle = col; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(e.x, e.y, p * 30, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = (1 - p) * 0.35; ctx.fillStyle = col;
+      ctx.beginPath(); ctx.arc(e.x, e.y, p * 18, 0, Math.PI * 2); ctx.fill();
+    }
+    if (e.type === 'bomb') {
+      ctx.globalAlpha = (1 - p) * 0.55; ctx.strokeStyle = e.color; ctx.lineWidth = 3 * (1-p) + 1;
+      ctx.beginPath(); ctx.arc(e.x, e.y, p * 160, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = (1 - p) * 0.12; ctx.fillStyle = e.color;
+      ctx.beginPath(); ctx.arc(e.x, e.y, p * 160, 0, Math.PI * 2); ctx.fill();
+    }
     if (e.type === 'noDur') {
       ctx.globalAlpha = (1 - p) * 0.7; ctx.strokeStyle = e.color; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(e.x - 10, e.y - 10); ctx.lineTo(e.x + 10, e.y + 10); ctx.stroke();
@@ -685,6 +763,17 @@ function renderEnemy(e, t) {
       ctx.beginPath(); ctx.arc(0, 0, e.r + 12, 0, Math.PI * 2); ctx.stroke();
       ctx.globalAlpha = 1;
     }
+  }
+
+  // Slow frost ring
+  if (e.slowTimer > 0) {
+    const fp = e.slowTimer / 180;
+    ctx.globalAlpha = fp * 0.55;
+    ctx.strokeStyle = COLOR_HEX['blue']; ctx.lineWidth = 2;
+    ctx.setLineDash([3, 4]);
+    ctx.beginPath(); ctx.arc(0, 0, e.r + 10, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
   }
 
   // Body (subtle color tint)
