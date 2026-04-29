@@ -1062,32 +1062,32 @@ function renderCircularUI(t) {
 
   // Inner ring (unlock zone) — active key color
   const dashOff = -(t * 0.55 % 1) * 20;
-  ctx.globalAlpha = 0.78; ctx.strokeStyle = keyCol; ctx.lineWidth = 2.2;
+  ctx.globalAlpha = 1.0; ctx.strokeStyle = keyCol; ctx.lineWidth = 3.5;
   ctx.setLineDash([13, 7]); ctx.lineDashOffset = dashOff;
   ctx.beginPath(); ctx.arc(cx, cy, CFG.INNER_R, 0, Math.PI * 2); ctx.stroke();
   ctx.setLineDash([]); ctx.lineDashOffset = 0;
-  ctx.globalAlpha = 0.08; ctx.fillStyle = keyCol;
+  ctx.globalAlpha = 0.18; ctx.fillStyle = keyCol;
   ctx.beginPath(); ctx.arc(cx, cy, CFG.INNER_R, 0, Math.PI * 2); ctx.fill();
   ctx.globalAlpha = 1;
 
   // Direction guides: current + 2 predictions
   if (connectedEnemy) {
     const q = connectedEnemy.angleQueue;
-    const ghostAlpha = ghostTimer > 0 ? Math.min(ghostTimer / 25, 1) : 0.4;
+    const ghostAlpha = ghostTimer > 0 ? Math.min(ghostTimer / 25, 1) : 0.55;
 
-    // 2nd prediction (faintest)
+    // 2nd prediction (faint)
     if (q.length > 2) {
-      ctx.globalAlpha = 0.13;
-      renderDirectionGuide(cx, cy, q[2], keyCol);
+      ctx.globalAlpha = 0.25;
+      renderDirectionGuide(cx, cy, q[2], keyCol, 2);
     }
     // 1st prediction (medium)
     if (q.length > 1) {
-      ctx.globalAlpha = 0.28;
-      renderDirectionGuide(cx, cy, q[1], keyCol);
+      ctx.globalAlpha = 0.52;
+      renderDirectionGuide(cx, cy, q[1], keyCol, 3);
     }
-    // Current (brightest, fades with ghost timer)
-    ctx.globalAlpha = ghostAlpha * 0.62;
-    renderDirectionGuide(cx, cy, q[0], keyCol);
+    // Current (full brightness)
+    ctx.globalAlpha = ghostAlpha;
+    renderDirectionGuide(cx, cy, q[0], keyCol, 5);
     ctx.globalAlpha = 1;
   }
 
@@ -1099,8 +1099,8 @@ function renderCircularUI(t) {
   ctx.restore();
 }
 
-// color: hex string for this guide's color
-function renderDirectionGuide(cx, cy, angle, color) {
+// lineW: stem line width (also scales arrowhead)
+function renderDirectionGuide(cx, cy, angle, color, lineW = 4) {
   const stemStart = CFG.INNER_R * 0.25;
   const stemEnd   = CFG.OUTER_R * 0.88;
   const ex = cx + Math.cos(angle) * stemEnd;
@@ -1109,7 +1109,7 @@ function renderDirectionGuide(cx, cy, angle, color) {
   // Tolerance fan (±45°)
   const baseAlpha = ctx.globalAlpha;
   ctx.save();
-  ctx.globalAlpha = baseAlpha * 0.18;
+  ctx.globalAlpha = baseAlpha * 0.38;
   ctx.fillStyle = color;
   ctx.beginPath();
   ctx.moveTo(cx + Math.cos(angle - CFG.UNLOCK_TOLERANCE) * CFG.INNER_R,
@@ -1121,15 +1121,15 @@ function renderDirectionGuide(cx, cy, angle, color) {
   ctx.restore();
 
   // Stem
-  ctx.strokeStyle = color; ctx.lineWidth = 4; ctx.lineCap = 'round';
+  ctx.strokeStyle = color; ctx.lineWidth = lineW; ctx.lineCap = 'round';
   ctx.beginPath();
   ctx.moveTo(cx + Math.cos(angle) * stemStart, cy + Math.sin(angle) * stemStart);
   ctx.lineTo(ex, ey);
   ctx.stroke();
 
-  // Arrowhead
+  // Arrowhead (scales with lineW)
   const hw = Math.PI / 5;
-  const hs = 22;
+  const hs = 10 + lineW * 2.4;
   ctx.fillStyle = color;
   ctx.beginPath();
   ctx.moveTo(ex, ey);
