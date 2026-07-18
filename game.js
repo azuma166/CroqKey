@@ -325,7 +325,6 @@ function fuseSlots(idxA, idxB) {
   keySlots.splice(lo, 1);
   keySlots.splice(lo, 0, merged);
   selectedSlotIdx = Math.min(selectedSlotIdx, keySlots.length - 1);
-  if (navigator.vibrate) navigator.vibrate([15, 8, 15, 8, 25]);
 }
 
 function applyDraftChoice(index) {
@@ -448,6 +447,7 @@ const keySlots = [
 ];
 let selectedSlotIdx = 0;
 let fusionSlotA     = -1; // first slot chosen in FUSION_SELECT mode
+let fusionSlotB     = -1; // second slot chosen — awaiting confirmation
 
 // ══════════════════════════════════════════════
 //  PLAYER  (world coords)
@@ -740,6 +740,65 @@ function playUnlockSound() {
   clickSrc.stop(now + 0.025);
 }
 
+// Soft triangle tone: slot A selected
+function playFusionSelectSound() {
+  const a = ac();
+  const now = a.currentTime;
+  const osc  = a.createOscillator();
+  const gain = a.createGain();
+  osc.type = 'triangle';
+  osc.frequency.setValueAtTime(880, now);
+  gain.gain.setValueAtTime(0.35, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+  osc.connect(gain); gain.connect(a.destination);
+  osc.start(now); osc.stop(now + 0.25);
+}
+
+// Two-note harmony: slot B chosen, preview stage
+function playFusionPreviewSound() {
+  const a = ac();
+  const now = a.currentTime;
+  const master = a.createGain();
+  master.gain.setValueAtTime(0.35, now);
+  master.connect(a.destination);
+  [[523.25, 0], [659.26, 0.06]].forEach(([f, delay]) => {
+    const osc = a.createOscillator();
+    const g   = a.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(f, now + delay);
+    g.gain.setValueAtTime(0.8, now + delay);
+    g.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.55);
+    osc.connect(g); g.connect(master);
+    osc.start(now + delay); osc.stop(now + delay + 0.6);
+  });
+}
+
+// Rising arpeggio + click transient: fusion confirmed
+function playFusionCompleteSound() {
+  const a = ac();
+  const now = a.currentTime;
+  const master = a.createGain();
+  master.gain.setValueAtTime(0.42, now);
+  master.connect(a.destination);
+  [261.63, 329.63, 392, 523.25, 659.26, 783.99].forEach((f, i) => {
+    const osc = a.createOscillator();
+    const g   = a.createGain();
+    const t0  = now + i * 0.065;
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(f, t0);
+    g.gain.setValueAtTime(0.7, t0);
+    g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.6);
+    osc.connect(g); g.connect(master);
+    osc.start(t0); osc.stop(t0 + 0.65);
+  });
+  const { node: co, src: cs } = makeClickNode(a, 3000, 0.02);
+  const cg = a.createGain();
+  cg.gain.setValueAtTime(1.0, now);
+  cg.gain.exponentialRampToValueAtTime(0.001, now + 0.02);
+  co.connect(cg); cg.connect(master);
+  cs.start(now); cs.stop(now + 0.025);
+}
+
 // ══════════════════════════════════════════════
 //  INPUT
 // ══════════════════════════════════════════════
@@ -764,6 +823,14 @@ function pauseButtonBounds() {
   return { x: 12, y: 62, w: 52, h: 28 };
 }
 
+function fusionConfirmBounds(w, h) {
+  const cx = w / 2, btnY = h / 2 + 60;
+  return {
+    confirm: { x: cx - 160, y: btnY, w: 140, h: 48 },
+    cancel:  { x: cx + 20,  y: btnY, w: 140, h: 48 },
+  };
+}
+
 function pointerDown(sx, sy) {
   // Pause button (available during IDLE and CONNECTED)
   if (state === State.IDLE || state === State.CONNECTED) {
@@ -774,27 +841,44 @@ function pointerDown(sx, sy) {
       return;
     }
   }
-  // FUSION_SELECT: slot tap selects A, then B → fuse
+  // FUSION_SELECT: select → confirm two-step flow
   if (state === State.FUSION_SELECT) {
+    if (fusionSlotB !== -1) {
+      // Confirmation stage: only confirm/cancel buttons are active
+      const btn = fusionConfirmBounds(W(), H());
+      const inBox = (b, x, y) => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
+      if (inBox(btn.confirm, sx, sy)) {
+        fuseSlots(fusionSlotA, fusionSlotB);
+        playFusionCompleteSound();
+        fusionSlotA = -1; fusionSlotB = -1;
+        state = State.IDLE;
+        touch = null; return;
+      }
+      // Cancel (button or anywhere else)
+      fusionSlotA = -1; fusionSlotB = -1;
+      if (!inBox(btn.cancel, sx, sy)) {
+        state = State.IDLE;
+      }
+      touch = null; return;
+    }
+    // Selection stage: tap a slot
     const fslots = keyPanelSlots();
     for (const s of fslots) {
       if (Math.hypot(sx - s.cx, sy - s.cy) < s.r + 10) {
         if (fusionSlotA === -1) {
           fusionSlotA = s.idx;
+          playFusionSelectSound();
         } else if (s.idx !== fusionSlotA) {
-          fuseSlots(fusionSlotA, s.idx);
-          fusionSlotA = -1;
-          state = State.IDLE;
+          fusionSlotB = s.idx;
+          playFusionPreviewSound();
         }
-        touch = null;
-        return;
+        touch = null; return;
       }
     }
     // Tap outside panel = cancel
-    fusionSlotA = -1;
+    fusionSlotA = -1; fusionSlotB = -1;
     state = State.IDLE;
-    touch = null;
-    return;
+    touch = null; return;
   }
   // PAUSED: record touch for button detection in pointerUp
   if (state === State.PAUSED) {
@@ -1180,6 +1264,7 @@ function resetGame() {
   );
   selectedSlotIdx = 0;
   fusionSlotA = -1;
+  fusionSlotB = -1;
   score = 0; frame = 0; gameTime = 0; spawnTimer = 0;
   beamFlash = uiShake = ghostTimer = 0;
   screenFlash = null; connectedEnemy = null;
@@ -1742,15 +1827,33 @@ function renderCircularUI(t) {
   ctx.save();
   ctx.translate(shakeX, 0);
 
-  // Inner ring (unlock zone) — active key color, no outer escape ring
+  // Inner ring (unlock zone) — per-color arc segments for fused slots
   const dashOff = -(t * 0.55 % 1) * 20;
-  ctx.globalAlpha = 1.0; ctx.strokeStyle = keyCol; ctx.lineWidth = 3.5;
-  ctx.setLineDash([13, 7]); ctx.lineDashOffset = dashOff;
-  ctx.beginPath(); ctx.arc(cx, cy, CFG.INNER_R, 0, Math.PI * 2); ctx.stroke();
-  ctx.setLineDash([]); ctx.lineDashOffset = 0;
-  ctx.globalAlpha = 0.18; ctx.fillStyle = keyCol;
-  ctx.beginPath(); ctx.arc(cx, cy, CFG.INNER_R, 0, Math.PI * 2); ctx.fill();
-  ctx.globalAlpha = 1;
+  if (_slot.colors.length > 1 && _slot.dur > 0) {
+    const segAngle = (Math.PI * 2) / _slot.colors.length;
+    _slot.colors.forEach((c, ci) => {
+      ctx.globalAlpha = 1.0;
+      ctx.strokeStyle = COLOR_HEX[c]; ctx.lineWidth = 3.5;
+      ctx.setLineDash([13, 7]); ctx.lineDashOffset = dashOff - ci * 20;
+      ctx.beginPath();
+      ctx.arc(cx, cy, CFG.INNER_R, ci * segAngle, (ci + 1) * segAngle);
+      ctx.stroke();
+    });
+    ctx.setLineDash([]); ctx.lineDashOffset = 0; ctx.globalAlpha = 1;
+    const ringGrad = ctx.createLinearGradient(cx - CFG.INNER_R, cy, cx + CFG.INNER_R, cy);
+    _slot.colors.forEach((c, ci) => ringGrad.addColorStop(ci / Math.max(_slot.colors.length - 1, 1), COLOR_HEX[c] + '30'));
+    ctx.globalAlpha = 0.18; ctx.fillStyle = ringGrad;
+    ctx.beginPath(); ctx.arc(cx, cy, CFG.INNER_R, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+  } else {
+    ctx.globalAlpha = 1.0; ctx.strokeStyle = keyCol; ctx.lineWidth = 3.5;
+    ctx.setLineDash([13, 7]); ctx.lineDashOffset = dashOff;
+    ctx.beginPath(); ctx.arc(cx, cy, CFG.INNER_R, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]); ctx.lineDashOffset = 0;
+    ctx.globalAlpha = 0.18; ctx.fillStyle = keyCol;
+    ctx.beginPath(); ctx.arc(cx, cy, CFG.INNER_R, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
 
   // Direction guides: show only as many arrows as hits remaining to kill
   if (connectedEnemy) {
@@ -1764,17 +1867,18 @@ function renderCircularUI(t) {
     const show    = Math.min(hitsLeft, maxShow);
     const dynamicTol = CFG.UNLOCK_TOLERANCE + uiMods.flickTolerance;
     const ghostAlpha = ghostTimer > 0 ? Math.min(ghostTimer / 25, 1) : 0.55;
+    const arrowColors = _slot.dur > 0 && _slot.colors.length > 1 ? _slot.colors.map(c => COLOR_HEX[c]) : null;
 
     if (show >= 3 && q.length > 2) {
       ctx.globalAlpha = 0.25;
-      renderDirectionGuide(cx, cy, q[2], keyCol, 2, dynamicTol);
+      renderDirectionGuide(cx, cy, q[2], keyCol, 2, dynamicTol, arrowColors);
     }
     if (show >= 2 && q.length > 1) {
       ctx.globalAlpha = 0.52;
-      renderDirectionGuide(cx, cy, q[1], keyCol, 3, dynamicTol);
+      renderDirectionGuide(cx, cy, q[1], keyCol, 3, dynamicTol, arrowColors);
     }
     ctx.globalAlpha = ghostAlpha;
-    renderDirectionGuide(cx, cy, q[0], keyCol, 5, dynamicTol);
+    renderDirectionGuide(cx, cy, q[0], keyCol, 5, dynamicTol, arrowColors);
     ctx.globalAlpha = 1;
   }
 
@@ -1793,18 +1897,33 @@ function renderCircularUI(t) {
 }
 
 // lineW: stem line width (also scales arrowhead); tol: effective angle tolerance in radians
-function renderDirectionGuide(cx, cy, angle, color, lineW = 4, tol = CFG.UNLOCK_TOLERANCE) {
+// colors: optional hex color array for multi-color gradient (fused slots)
+function renderDirectionGuide(cx, cy, angle, color, lineW = 4, tol = CFG.UNLOCK_TOLERANCE, colors = null) {
   const stemStart = CFG.INNER_R * 0.25;
   const stemEnd   = CFG.OUTER_R * 0.88;
   const ex = cx + Math.cos(angle) * stemEnd;
   const ey = cy + Math.sin(angle) * stemEnd;
+  const ssx = cx + Math.cos(angle) * stemStart;
+  const ssy = cy + Math.sin(angle) * stemStart;
+  const useGrad = colors && colors.length > 1;
 
-  // Tolerance fan — sized by actual unlock tolerance so player sees the real window
+  // Tolerance fan
   const safeTol = Math.max(5 * Math.PI / 180, tol);
   const baseAlpha = ctx.globalAlpha;
   ctx.save();
   ctx.globalAlpha = baseAlpha * 0.38;
-  ctx.fillStyle = color;
+  if (useGrad) {
+    const fanGrad = ctx.createLinearGradient(
+      cx + Math.cos(angle - safeTol) * CFG.OUTER_R * 0.85,
+      cy + Math.sin(angle - safeTol) * CFG.OUTER_R * 0.85,
+      cx + Math.cos(angle + safeTol) * CFG.OUTER_R * 0.85,
+      cy + Math.sin(angle + safeTol) * CFG.OUTER_R * 0.85
+    );
+    colors.forEach((c, ci) => fanGrad.addColorStop(ci / Math.max(colors.length - 1, 1), c));
+    ctx.fillStyle = fanGrad;
+  } else {
+    ctx.fillStyle = color;
+  }
   ctx.beginPath();
   ctx.moveTo(cx + Math.cos(angle - safeTol) * CFG.INNER_R,
              cy + Math.sin(angle - safeTol) * CFG.INNER_R);
@@ -1815,16 +1934,24 @@ function renderDirectionGuide(cx, cy, angle, color, lineW = 4, tol = CFG.UNLOCK_
   ctx.restore();
 
   // Stem
-  ctx.strokeStyle = color; ctx.lineWidth = lineW; ctx.lineCap = 'round';
+  if (useGrad) {
+    const stemGrad = ctx.createLinearGradient(ssx, ssy, ex, ey);
+    colors.forEach((c, ci) => stemGrad.addColorStop(ci / Math.max(colors.length - 1, 1), c));
+    ctx.strokeStyle = stemGrad;
+  } else {
+    ctx.strokeStyle = color;
+  }
+  ctx.lineWidth = lineW; ctx.lineCap = 'round';
   ctx.beginPath();
-  ctx.moveTo(cx + Math.cos(angle) * stemStart, cy + Math.sin(angle) * stemStart);
+  ctx.moveTo(ssx, ssy);
   ctx.lineTo(ex, ey);
   ctx.stroke();
 
-  // Arrowhead (scales with lineW)
+  // Arrowhead (tip = last color in gradient)
+  const tipCol = useGrad ? colors[colors.length - 1] : color;
   const hw = Math.PI / 5;
   const hs = 10 + lineW * 2.4;
-  ctx.fillStyle = color;
+  ctx.fillStyle = tipCol;
   ctx.beginPath();
   ctx.moveTo(ex, ey);
   ctx.lineTo(ex - Math.cos(angle - hw) * hs, ey - Math.sin(angle - hw) * hs);
@@ -2439,47 +2566,125 @@ function renderFusionSelect(w, h, t) {
   const cx = w / 2;
   const nameMap = { red:'赤', blue:'青', yellow:'黄', green:'緑', purple:'紫' };
 
-  // Instruction panel
+  // Header panel
   ctx.fillStyle   = 'rgba(255,200,60,0.12)';
   ctx.strokeStyle = 'rgba(255,200,60,0.45)';
   ctx.lineWidth   = 1.5;
   ctx.save();
   ctx.beginPath(); ctx.roundRect(cx - 190, 48, 380, 86, 12); ctx.fill(); ctx.stroke();
   ctx.restore();
-
   ctx.fillStyle = '#ffcc44';
   ctx.font = 'bold 18px -apple-system, sans-serif';
   ctx.textAlign = 'center';
   ctx.fillText('色融合刻印', cx, 78);
 
-  ctx.font = '13px -apple-system, sans-serif';
-  if (fusionSlotA === -1) {
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
-    ctx.fillText('融合させたい1つ目の鍵をタップ', cx, 103);
-  } else {
+  if (fusionSlotB !== -1) {
+    // ── Confirmation stage ──
     const sA = keySlots[fusionSlotA];
-    const label = sA ? sA.colors.map(c => nameMap[c] || c).join('+') : '?';
+    const sB = keySlots[fusionSlotB];
+    const mergedColors = sA && sB ? [...new Set([...sA.colors, ...sB.colors])] : [];
+    const labelA = sA ? sA.colors.map(c => nameMap[c] || c).join('+') : '?';
+    const labelB = sB ? sB.colors.map(c => nameMap[c] || c).join('+') : '?';
+    const labelM = mergedColors.map(c => nameMap[c] || c).join('+');
+
+    ctx.font = '13px -apple-system, sans-serif';
     ctx.fillStyle = '#ffcc44';
-    ctx.fillText(`「${label}」選択中  →  融合する2つ目をタップ`, cx, 103);
-  }
+    ctx.fillText('融合内容を確認', cx, 103);
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.font = '11px -apple-system, sans-serif';
+    ctx.fillText(`「${labelA}」＋「${labelB}」 → 「${labelM}」`, cx, 122);
 
-  ctx.fillStyle = 'rgba(255,255,255,0.3)';
-  ctx.font = '11px -apple-system, sans-serif';
-  ctx.fillText('パネル外タップでキャンセル', cx, 124);
-
-  // Fusion preview: if slotA chosen, show what result will look like
-  if (fusionSlotA !== -1) {
-    const fslots = keyPanelSlots();
-    const sA = fslots[fusionSlotA];
-    if (sA) {
-      const pulse = 0.75 + 0.25 * Math.sin(t * 5);
-      ctx.strokeStyle = '#ffcc44';
-      ctx.lineWidth   = 3;
-      ctx.globalAlpha = pulse;
-      ctx.beginPath(); ctx.arc(sA.cx, sA.cy, sA.r + 14, 0, Math.PI * 2); ctx.stroke();
-      ctx.globalAlpha = 0.5 * pulse;
-      ctx.beginPath(); ctx.arc(sA.cx, sA.cy, sA.r + 20, 0, Math.PI * 2); ctx.stroke();
+    // Preview card
+    const cardW = 280, cardH = 90, cardY = h / 2 - 60;
+    ctx.fillStyle = 'rgba(255,200,60,0.08)';
+    ctx.strokeStyle = 'rgba(255,200,60,0.38)';
+    ctx.lineWidth = 1.5;
+    ctx.save();
+    ctx.beginPath(); ctx.roundRect(cx - cardW / 2, cardY, cardW, cardH, 10); ctx.fill(); ctx.stroke();
+    ctx.restore();
+    const dotR = 14;
+    const spacing = Math.min(52, (cardW - 40) / Math.max(mergedColors.length, 1));
+    const startDotX = cx - spacing * (mergedColors.length - 1) / 2;
+    mergedColors.forEach((col, ci) => {
+      const dx = startDotX + ci * spacing;
+      const dy = cardY + cardH / 2;
+      ctx.globalAlpha = 0.9;
+      ctx.fillStyle = COLOR_HEX[col];
+      ctx.beginPath(); ctx.arc(dx, dy, dotR, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 0.4;
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(dx, dy, dotR, 0, Math.PI * 2); ctx.stroke();
       ctx.globalAlpha = 1;
+      ctx.font = 'bold 10px -apple-system, sans-serif';
+      ctx.fillStyle = '#ccc'; ctx.textAlign = 'center';
+      ctx.fillText(nameMap[col] || col, dx, dy + dotR + 13);
+    });
+
+    // Confirm / Cancel buttons
+    const btn = fusionConfirmBounds(w, h);
+    ctx.fillStyle = 'rgba(80,200,100,0.18)';
+    ctx.strokeStyle = 'rgba(80,200,100,0.65)';
+    ctx.lineWidth = 1.5;
+    ctx.save();
+    ctx.beginPath(); ctx.roundRect(btn.confirm.x, btn.confirm.y, btn.confirm.w, btn.confirm.h, 9); ctx.fill(); ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = '#7de899';
+    ctx.font = 'bold 15px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('融合する', btn.confirm.x + btn.confirm.w / 2, btn.confirm.y + 30);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.07)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+    ctx.lineWidth = 1;
+    ctx.save();
+    ctx.beginPath(); ctx.roundRect(btn.cancel.x, btn.cancel.y, btn.cancel.w, btn.cancel.h, 9); ctx.fill(); ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = 'rgba(255,255,255,0.65)';
+    ctx.font = '14px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('キャンセル', btn.cancel.x + btn.cancel.w / 2, btn.cancel.y + 28);
+
+    // Pulse highlights on both chosen slots
+    const fslots = keyPanelSlots();
+    [fusionSlotA, fusionSlotB].forEach((idx, ii) => {
+      const s = fslots.find(fs => fs.idx === idx);
+      if (!s) return;
+      const pulse = 0.75 + 0.25 * Math.sin(t * 5 + ii * Math.PI);
+      ctx.strokeStyle = ii === 0 ? '#ffcc44' : '#7de899';
+      ctx.lineWidth = 3; ctx.globalAlpha = pulse;
+      ctx.beginPath(); ctx.arc(s.cx, s.cy, s.r + 14, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 1;
+    });
+  } else {
+    // ── Selection stage ──
+    ctx.font = '13px -apple-system, sans-serif';
+    if (fusionSlotA === -1) {
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.fillText('融合させたい1つ目の鍵をタップ', cx, 103);
+    } else {
+      const sA = keySlots[fusionSlotA];
+      const label = sA ? sA.colors.map(c => nameMap[c] || c).join('+') : '?';
+      ctx.fillStyle = '#ffcc44';
+      ctx.fillText(`「${label}」選択中  →  融合する2つ目をタップ`, cx, 103);
+    }
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.font = '11px -apple-system, sans-serif';
+    ctx.fillText('パネル外タップでキャンセル', cx, 124);
+
+    // Pulsing highlight on selected slot A
+    if (fusionSlotA !== -1) {
+      const fslots = keyPanelSlots();
+      const sA = fslots.find(s => s.idx === fusionSlotA);
+      if (sA) {
+        const pulse = 0.75 + 0.25 * Math.sin(t * 5);
+        ctx.strokeStyle = '#ffcc44';
+        ctx.lineWidth   = 3;
+        ctx.globalAlpha = pulse;
+        ctx.beginPath(); ctx.arc(sA.cx, sA.cy, sA.r + 14, 0, Math.PI * 2); ctx.stroke();
+        ctx.globalAlpha = 0.5 * pulse;
+        ctx.beginPath(); ctx.arc(sA.cx, sA.cy, sA.r + 20, 0, Math.PI * 2); ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
     }
   }
 }
