@@ -41,7 +41,7 @@ const CFG = {
   ENEMY_HP:           6,
   KEY_DROP_DUR:       8,   // durability added per key pickup
   DUR_COST_NORMAL:    1,   // durability spent on non-crit hit
-  DUR_COST_CRIT:      1,   // durability spent on crit hit
+  DUR_COST_CRIT:      2,   // durability spent on crit hit
   COMBO_COEFF:        0.21, // combo damage multiplier coefficient
   GHOST_FRAMES:       90,
   UNLOCK_TOLERANCE:  Math.PI / 4,
@@ -57,8 +57,19 @@ const CFG = {
 const RARITY = { COMMON: 'common', RARE: 'rare', EPIC: 'epic' };
 const RARITY_COLOR = { common: '#aaa', rare: '#3c7de8', epic: '#b044d8' };
 const RARITY_WEIGHT = { common: 0.70, rare: 0.25, epic: 0.05 };
-const ORB_UNLOCK_KILLS = 12; // first orb after 12 kills, then every 10
+const ORB_UNLOCK_KILLS = 100; // first orb after 100 kills, then every 10
 const ORB_INTERVAL_KILLS = 10;
+const FUSION_INS_UNLOCK   = 200; // first fusion inscription orb after 200 kills
+const FUSION_INS_INTERVAL = 100; // one fusion inscription orb every 100 kills after that
+
+// Per-color effect for fusion inscriptions (buff only, no debuff)
+const FUSION_COLOR_EFFECT = {
+  red:    { key: 'globalDmgMult',    val: 1.20, label: '全ダメ +20%' },
+  blue:   { key: 'blueSlowRadMult',  val: 0.30, label: 'スロー半径 +30%' },
+  yellow: { key: 'yellowChainExtra', val: 1,    label: '黄チェイン +1段' },
+  green:  { key: 'greenHealBonus',   val: 1,    label: '緑回復量 +1' },
+  purple: { key: 'purpleBombDmg',    val: 2,    label: 'ボムダメ +2' },
+};
 
 // Each buff/debuff entry: { id, label, tier('light'|'medium'|'heavy'), applyMod(mods, val) }
 // val is the numeric effect size for display; actual effect is in getMods()
@@ -177,10 +188,12 @@ function getMods() {
     fusionEarlySpawn: 0,
   };
   for (const ins of activeInscriptions) {
-    // buff
-    applyInscriptionMod(m, ins.buff);
-    // debuff
-    applyInscriptionMod(m, ins.debuff);
+    if (ins.type === 'fusion') {
+      for (const eff of ins.effects) applyInscriptionMod(m, eff);
+    } else {
+      applyInscriptionMod(m, ins.buff);
+      applyInscriptionMod(m, ins.debuff);
+    }
   }
   // clamp some
   m.globalDmgMult = Math.max(0.1, m.globalDmgMult);
@@ -259,6 +272,7 @@ function spawnInscriptionOrb() {
   const angle = Math.random() * Math.PI * 2;
   const dist  = 400 + Math.random() * 350;
   inscriptionOrbs.push({
+    type:   'normal',
     x:      player.x + Math.cos(angle) * dist,
     y:      player.y + Math.sin(angle) * dist,
     rarity: pickRarity(),
@@ -266,9 +280,40 @@ function spawnInscriptionOrb() {
   });
 }
 
+function spawnFusionInscriptionOrb() {
+  const angle = Math.random() * Math.PI * 2;
+  const dist  = 450 + Math.random() * 350;
+  inscriptionOrbs.push({
+    type:   'fusion',
+    x:      player.x + Math.cos(angle) * dist,
+    y:      player.y + Math.sin(angle) * dist,
+    rarity: RARITY.EPIC,
+    pulse:  0,
+  });
+}
+
+function generateFusionInscription() {
+  const w = colorWeather();
+  let pool = COLORS.filter(c => w[c] > 0.05);
+  if (pool.length < 2) pool = COLORS.slice(0, 2);
+  const maxColors = killCount >= 300 ? 4 : killCount >= 200 ? 3 : 2;
+  const numColors = 2 + Math.floor(Math.random() * Math.max(1, maxColors - 1));
+  const shuffled  = pool.slice().sort(() => Math.random() - 0.5);
+  const colors    = shuffled.slice(0, Math.min(numColors, pool.length));
+  const effects   = colors.map(c => FUSION_COLOR_EFFECT[c]);
+  return { type: 'fusion', colors, effects };
+}
+
 function openDraft(orbIndex) {
+  const orb = inscriptionOrbs[orbIndex];
   inscriptionOrbs.splice(orbIndex, 1);
-  draftChoices = [generateInscription(), generateInscription(), generateInscription()];
+  if (orb.type === 'fusion') {
+    draftChoices = [generateFusionInscription(), generateFusionInscription(), generateFusionInscription()];
+    draftIsFusion = true;
+  } else {
+    draftChoices = [generateInscription(), generateInscription(), generateInscription()];
+    draftIsFusion = false;
+  }
   state = State.DRAFT;
 }
 
@@ -277,7 +322,11 @@ function applyDraftChoice(index) {
     const ins = draftChoices[index];
     activeInscriptions.push(ins);
     if (navigator.vibrate) {
-      navigator.vibrate(ins.rarity === RARITY.EPIC ? [30, 20, 30] : ins.rarity === RARITY.RARE ? [20] : [10]);
+      if (ins.type === 'fusion') {
+        navigator.vibrate([20, 10, 20, 10, 20]);
+      } else {
+        navigator.vibrate(ins.rarity === RARITY.EPIC ? [30, 20, 30] : ins.rarity === RARITY.RARE ? [20] : [10]);
+      }
     }
   } else {
     // Skip: refill most depleted key to full
@@ -287,7 +336,8 @@ function applyDraftChoice(index) {
     }
     keyInventory[worstColor] = CFG.KEY_DROP_DUR * 3;
   }
-  draftChoices = [];
+  draftChoices  = [];
+  draftIsFusion = false;
   state = State.IDLE;
 }
 
@@ -362,7 +412,7 @@ function s2w(sx, sy) { return { x: sx + cam.x, y: sy + cam.y }; }
 // ══════════════════════════════════════════════
 //  GAME STATE
 // ══════════════════════════════════════════════
-const State = { IDLE: 'idle', CONNECTED: 'connected', GAMEOVER: 'gameover', DRAFT: 'draft' };
+const State = { IDLE: 'idle', CONNECTED: 'connected', GAMEOVER: 'gameover', DRAFT: 'draft', PAUSED: 'paused' };
 let state          = State.IDLE;
 let connectedEnemy = null;
 let score          = 0;
@@ -380,7 +430,10 @@ let comboMissCount = 0; // counts forgiven misses this combo chain
 const activeInscriptions = [];
 const inscriptionOrbs    = [];
 let draftChoices         = [];
+let draftIsFusion        = false;
 let nextOrbAt            = ORB_UNLOCK_KILLS;
+let nextFusionInsAt      = FUSION_INS_UNLOCK;
+let stateBeforePause     = State.IDLE;
 // keyInventory stores durability totals, not counts
 const keyInventory = { red: 16, blue: 0, yellow: 0, green: 0, purple: 0 };
 
@@ -447,13 +500,13 @@ function sampleColorWeather() {
 
 const COLOR_SPD_MULT = { red: 1.0, blue: 0.5, yellow: 2.0, green: 1.0, purple: 1.1 };
 const COLOR_HP      = { red: 6,   blue: 8,   yellow: 3,   green: 6,   purple: 6   };
-const FUSION_UNLOCK_KILLS = 30; // fusion enemies start appearing after 30 kills
+const FUSION_UNLOCK_KILLS = 100; // fusion enemies start appearing after 100 kills
 const FUSION_CHANCE_BASE  = 0.20; // 20% of spawns become fusion once unlocked
 
 function makeFusionEnemy(x, y, components) {
-  // Fusion rules: HP = max, speed = average, behavior = all combined
+  // Fusion rules: HP = sum of components, speed = average, behavior = all combined
   const mods = getMods();
-  const hp = Math.max(...components.map(c => COLOR_HP[c] || CFG.ENEMY_HP)) + mods.enemyHpBonus;
+  const hp = components.reduce((s, c) => s + (COLOR_HP[c] || CFG.ENEMY_HP), 0) + mods.enemyHpBonus;
   const avgSpdMult = components.reduce((s, c) => s + (COLOR_SPD_MULT[c] || 1), 0) / components.length;
   const spd = CFG.ENEMY_BASE_SPEED * (0.5 + Math.random() * 0.8) * avgSpdMult * (1 + mods.enemySpeedMult);
   const ang = Math.random() * Math.PI * 2;
@@ -485,19 +538,22 @@ function addEnemy() {
     y = player.y + Math.sin(a) * d;
   } while (++tries < 20 && Math.hypot(x - player.x, y - player.y) < minDist);
 
-  // Fusion chance after threshold
+  // Fusion chance after threshold — color count grows every 100 kills
   const mods = getMods();
   const fusionUnlock = FUSION_UNLOCK_KILLS - (mods.fusionEarlySpawn > 0 ? 12 : 0);
   if (killCount >= fusionUnlock && Math.random() < FUSION_CHANCE_BASE) {
-    // Pick 2 colors that are currently active in the weather
     const w = colorWeather();
     const pool = COLORS.filter(c => w[c] > 0.05);
     if (pool.length >= 2) {
-      const idx1 = Math.floor(Math.random() * pool.length);
-      let idx2 = Math.floor(Math.random() * (pool.length - 1));
-      if (idx2 >= idx1) idx2++;
-      enemies.push(makeFusionEnemy(x, y, [pool[idx1], pool[idx2]]));
-      return;
+      // 100-199: 2-color only; 200-299: 2-3; 300+: 2-4
+      const maxColors = killCount >= 300 ? 4 : killCount >= 200 ? 3 : 2;
+      const numColors = 2 + Math.floor(Math.random() * Math.max(1, maxColors - 1));
+      const shuffled = pool.slice().sort(() => Math.random() - 0.5);
+      const components = shuffled.slice(0, Math.min(numColors, shuffled.length));
+      if (components.length >= 2) {
+        enemies.push(makeFusionEnemy(x, y, components));
+        return;
+      }
     }
   }
 
@@ -691,7 +747,25 @@ function handlePanelTap(sx, sy) {
   return false;
 }
 
+function pauseButtonBounds() {
+  return { x: 12, y: 62, w: 52, h: 28 };
+}
+
 function pointerDown(sx, sy) {
+  // Pause button (available during IDLE and CONNECTED)
+  if (state === State.IDLE || state === State.CONNECTED) {
+    const pb = pauseButtonBounds();
+    if (sx >= pb.x && sx <= pb.x + pb.w && sy >= pb.y && sy <= pb.y + pb.h) {
+      stateBeforePause = state;
+      state = State.PAUSED;
+      return;
+    }
+  }
+  // PAUSED: record touch for button detection in pointerUp
+  if (state === State.PAUSED) {
+    touch = { sx, sy, t: performance.now() };
+    return;
+  }
   if (handlePanelTap(sx, sy)) return;
   touch = { sx, sy, t: performance.now() };
 
@@ -719,6 +793,23 @@ function pointerUp(sx, sy) {
   const dy   = sy - touch.sy;
   const dist = Math.hypot(dx, dy);
   const dt   = Math.max(performance.now() - touch.t, 25);
+
+  if (state === State.PAUSED) {
+    const w = W(), h = H();
+    const cx = w / 2, cy = h / 2;
+    const cardH = 220;
+    const cardY = cy - cardH / 2;
+    const resumeY = cardY + 90;
+    const resetY  = cardY + 148;
+    const tSx = touch.sx, tSy = touch.sy;
+    if (tSx >= cx - 80 && tSx <= cx + 80 && tSy >= resumeY && tSy <= resumeY + 44) {
+      state = stateBeforePause;
+    } else if (tSx >= cx - 80 && tSx <= cx + 80 && tSy >= resetY && tSy <= resetY + 44) {
+      resetGame();
+    }
+    touch = null;
+    return;
+  }
 
   if (state === State.DRAFT) {
     handleDraftTap(touch.sx, touch.sy);
@@ -803,7 +894,7 @@ function tryUnlock(dx, dy) {
     const dmg = Math.max(1, Math.round(comboMult * mods.globalDmgMult * (crit ? critBonus : 1)));
 
     if (hasKey) {
-      keyInventory[keyCol] = Math.max(0, keyInventory[keyCol] - CFG.DUR_COST_NORMAL);
+      keyInventory[keyCol] = Math.max(0, keyInventory[keyCol] - (crit ? CFG.DUR_COST_CRIT : CFG.DUR_COST_NORMAL));
     }
 
     combo++;
@@ -928,10 +1019,16 @@ function fullyUnlock(enemy) {
   score++;
   killCount++;
 
-  // Orb spawn threshold
+  // Normal inscription orb spawn threshold
   if (killCount >= nextOrbAt && inscriptionOrbs.length < 3) {
     nextOrbAt = killCount + ORB_INTERVAL_KILLS;
     spawnInscriptionOrb();
+  }
+
+  // Fusion inscription orb (200 kills, then every 100)
+  if (killCount >= nextFusionInsAt) {
+    nextFusionInsAt += FUSION_INS_INTERVAL;
+    spawnFusionInscriptionOrb();
   }
 
   // B-S2: heal on kill chance
@@ -993,7 +1090,6 @@ function emergencyEscape(dx, dy, dt) {
     player.vx = Math.cos(a) * spd;
     player.vy = Math.sin(a) * spd;
   }
-  combo = 0;
   addFx('escape', player.x, player.y, { maxAge: 22 });
   connectedEnemy = null;
   state          = State.IDLE;
@@ -1045,7 +1141,10 @@ function resetGame() {
   activeInscriptions.length = 0;
   inscriptionOrbs.length    = 0;
   draftChoices              = [];
+  draftIsFusion             = false;
   nextOrbAt                 = ORB_UNLOCK_KILLS;
+  nextFusionInsAt           = FUSION_INS_UNLOCK;
+  stateBeforePause          = State.IDLE;
   state = State.IDLE;
   initPlayer();
   spawnEnemies();
@@ -1055,7 +1154,7 @@ function resetGame() {
 //  UPDATE
 // ══════════════════════════════════════════════
 function update() {
-  if (state === State.GAMEOVER || state === State.DRAFT) return;
+  if (state === State.GAMEOVER || state === State.DRAFT || state === State.PAUSED) return;
   frame++;
   gameTime = frame / 60;
   const sf = state === State.CONNECTED ? CFG.SLOW_FACTOR : 1.0;
@@ -1228,6 +1327,7 @@ function render() {
   renderHUD(w, h);
   if (state === State.GAMEOVER) renderGameOver(w, h);
   if (state === State.DRAFT)    renderDraft(w, h, t);
+  if (state === State.PAUSED)   renderPause(w, h);
 }
 
 function drawInfiniteGrid() {
@@ -1811,10 +1911,34 @@ function renderHUD(w, h) {
 
   // Inscription count (top-left corner)
   if (activeInscriptions.length > 0) {
-    ctx.fillStyle = '#b044d8';
+    const fusionCnt = activeInscriptions.filter(i => i.type === 'fusion').length;
+    const normalCnt = activeInscriptions.length - fusionCnt;
     ctx.font = 'bold 11px -apple-system, monospace';
     ctx.textAlign = 'left';
-    ctx.fillText(`◆ 刻印 ×${activeInscriptions.length}`, 16, 48);
+    if (normalCnt > 0) {
+      ctx.fillStyle = '#b044d8';
+      ctx.fillText(`◆ 刻印 ×${normalCnt}`, 16, 48);
+    }
+    if (fusionCnt > 0) {
+      ctx.fillStyle = '#ffcc44';
+      ctx.fillText(`✦ 融合 ×${fusionCnt}`, 16, normalCnt > 0 ? 62 : 48);
+    }
+  }
+
+  // Pause button
+  {
+    const pb = pauseButtonBounds();
+    ctx.save();
+    ctx.fillStyle = 'rgba(30,28,40,0.6)';
+    ctx.strokeStyle = 'rgba(180,180,200,0.28)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(pb.x, pb.y, pb.w, pb.h, 6); ctx.fill(); ctx.stroke();
+    // Two vertical bars (pause icon)
+    ctx.fillStyle = 'rgba(200,200,210,0.8)';
+    const bx = pb.x + pb.w / 2, by = pb.y + 7, bh = pb.h - 14;
+    ctx.fillRect(bx - 7, by, 4, bh);
+    ctx.fillRect(bx + 3, by, 4, bh);
+    ctx.restore();
   }
 
   ctx.fillStyle = '#aaa'; ctx.font = '11px -apple-system, sans-serif'; ctx.textAlign = 'center';
@@ -1903,60 +2027,126 @@ function renderGameOver(w, h) {
 function renderInscriptionOrbs(t) {
   for (const orb of inscriptionOrbs) {
     const pulse = Math.sin(t * 3.2 + (orb.pulse || 0) * 0.05) * 0.5 + 0.5;
-    const col   = RARITY_COLOR[orb.rarity];
     ctx.save();
     ctx.translate(orb.x, orb.y);
 
-    // Glow ring
-    ctx.globalAlpha = 0.18 + pulse * 0.14;
-    ctx.strokeStyle = col; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.arc(0, 0, 22 + pulse * 4, 0, Math.PI * 2); ctx.stroke();
-
-    // Core diamond
-    ctx.globalAlpha = 0.7 + pulse * 0.3;
-    ctx.fillStyle   = col;
-    ctx.beginPath();
-    ctx.moveTo(0, -10); ctx.lineTo(7, 0); ctx.lineTo(0, 10); ctx.lineTo(-7, 0);
-    ctx.closePath(); ctx.fill();
-
-    // White inner highlight
-    ctx.globalAlpha = 0.5;
-    ctx.fillStyle   = '#fff';
-    ctx.beginPath();
-    ctx.moveTo(0, -5); ctx.lineTo(3, 0); ctx.lineTo(0, 1); ctx.lineTo(-3, 0);
-    ctx.closePath(); ctx.fill();
+    if (orb.type === 'fusion') {
+      // Multi-color spinning ring segments
+      const segColors = ['#e8453c', '#3c7de8', '#ddb830', '#3db86a', '#9844e8'];
+      const numSeg = 5;
+      const segAngle = Math.PI * 2 / numSeg;
+      ctx.lineWidth = 4;
+      for (let i = 0; i < numSeg; i++) {
+        ctx.globalAlpha = 0.5 + pulse * 0.4;
+        ctx.strokeStyle = segColors[i];
+        ctx.beginPath();
+        ctx.arc(0, 0, 22 + pulse * 5, i * segAngle + t * 1.1, (i + 0.75) * segAngle + t * 1.1);
+        ctx.stroke();
+      }
+      // Gold diamond
+      ctx.globalAlpha = 0.8 + pulse * 0.2;
+      ctx.fillStyle = '#ffcc44';
+      ctx.beginPath();
+      ctx.moveTo(0, -12); ctx.lineTo(9, 0); ctx.lineTo(0, 12); ctx.lineTo(-9, 0);
+      ctx.closePath(); ctx.fill();
+      // White inner
+      ctx.globalAlpha = 0.55;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.moveTo(0, -6); ctx.lineTo(4, 0); ctx.lineTo(0, 2); ctx.lineTo(-4, 0);
+      ctx.closePath(); ctx.fill();
+    } else {
+      const col = RARITY_COLOR[orb.rarity];
+      // Glow ring
+      ctx.globalAlpha = 0.18 + pulse * 0.14;
+      ctx.strokeStyle = col; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(0, 0, 22 + pulse * 4, 0, Math.PI * 2); ctx.stroke();
+      // Core diamond
+      ctx.globalAlpha = 0.7 + pulse * 0.3;
+      ctx.fillStyle   = col;
+      ctx.beginPath();
+      ctx.moveTo(0, -10); ctx.lineTo(7, 0); ctx.lineTo(0, 10); ctx.lineTo(-7, 0);
+      ctx.closePath(); ctx.fill();
+      // White inner highlight
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle   = '#fff';
+      ctx.beginPath();
+      ctx.moveTo(0, -5); ctx.lineTo(3, 0); ctx.lineTo(0, 1); ctx.lineTo(-3, 0);
+      ctx.closePath(); ctx.fill();
+    }
 
     ctx.restore();
   }
 }
 
 function renderInscriptionEdgeIndicators() {
-  const margin = 38;
+  const margin = 54;
+  const t = performance.now() / 1000;
   for (const orb of inscriptionOrbs) {
     const angle = Math.atan2(orb.y - player.y, orb.x - player.x);
     const d     = Math.hypot(orb.x - player.x, orb.y - player.y);
-    if (d < 350) continue; // only show when off-screen-ish
+    if (d < 350) continue;
     const { x, y } = screenEdgePoint(angle, margin);
-    const col = RARITY_COLOR[orb.rarity];
+    const isFusion  = orb.type === 'fusion';
+    const col       = isFusion ? '#ffcc44' : RARITY_COLOR[orb.rarity];
+    const pulse     = 0.72 + 0.28 * Math.sin(t * 3.8 + (orb.pulse || 0) * 0.05);
+
     ctx.save();
     ctx.translate(x, y);
+
+    // Pill badge background — completely different shape from triangular enemy arrows
+    ctx.globalAlpha = 0.82;
+    ctx.fillStyle = 'rgba(10,8,20,0.88)';
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 1.8;
+    ctx.beginPath(); ctx.roundRect(-22, -17, 44, 34, 8); ctx.fill();
+    ctx.globalAlpha = 0.55 * pulse;
+    ctx.stroke();
+
+    // Upright diamond (not rotated with angle — clearly differs from enemy triangles)
+    ctx.globalAlpha = pulse;
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.moveTo(0, -9); ctx.lineTo(7, 0); ctx.lineTo(0, 9); ctx.lineTo(-7, 0);
+    ctx.closePath(); ctx.fill();
+    ctx.globalAlpha = 0.6;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.moveTo(0, -4); ctx.lineTo(3, 0); ctx.lineTo(0, 1); ctx.lineTo(-3, 0);
+    ctx.closePath(); ctx.fill();
+
+    // Text label below diamond
+    ctx.globalAlpha = 0.95 * pulse;
+    ctx.fillStyle = col;
+    ctx.font = `bold 8px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText(isFusion ? '融合' : '刻印', 0, 22);
+
+    // Small direction tick pointing toward orb (outside the badge)
+    ctx.globalAlpha = 0.65 * pulse;
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 2;
+    const ax = Math.cos(angle), ay = Math.sin(angle);
+    ctx.beginPath();
+    ctx.moveTo(ax * 24, ay * 24);
+    ctx.lineTo(ax * 30, ay * 30);
+    ctx.stroke();
+    ctx.save();
+    ctx.translate(ax * 30, ay * 30);
     ctx.rotate(angle);
-    ctx.globalAlpha = 0.8;
-    ctx.fillStyle   = col;
-    const sz = 6;
+    ctx.fillStyle = col;
     ctx.beginPath();
-    ctx.moveTo(sz + 2, 0); ctx.lineTo(-sz * 0.7, -sz * 0.7); ctx.lineTo(-sz * 0.7, sz * 0.7);
+    ctx.moveTo(4, 0); ctx.lineTo(-2, -3); ctx.lineTo(-2, 3);
     ctx.closePath(); ctx.fill();
-    // Diamond symbol
-    ctx.globalAlpha = 1;
-    ctx.beginPath();
-    ctx.moveTo(0, -4); ctx.lineTo(4, 0); ctx.lineTo(0, 4); ctx.lineTo(-4, 0);
-    ctx.closePath(); ctx.fill();
+    ctx.restore();
+
     ctx.restore();
   }
 }
 
 function renderDraft(w, h, t) {
+  if (draftIsFusion) { renderFusionDraft(w, h, t); return; }
+
   // Dim overlay
   ctx.fillStyle = 'rgba(8, 8, 14, 0.72)';
   ctx.fillRect(0, 0, w, h);
@@ -2047,6 +2237,160 @@ function renderDraft(w, h, t) {
     ctx.textAlign = 'center';
     ctx.fillText(`刻印 ${activeInscriptions.length}個 取得済み`, w / 2, h - 40);
   }
+}
+
+function renderFusionDraft(w, h, t) {
+  // Overlay with warm gold tint
+  ctx.fillStyle = 'rgba(8, 7, 14, 0.80)';
+  ctx.fillRect(0, 0, w, h);
+
+  // Gold frame accent
+  ctx.strokeStyle = 'rgba(255,200,60,0.18)';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(10, 10, w - 20, h - 20);
+
+  // Title
+  ctx.fillStyle = '#ffcc44';
+  ctx.font = 'bold 22px -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('色融合刻印', w / 2, h / 2 - 185);
+
+  ctx.fillStyle = 'rgba(255,200,60,0.55)';
+  ctx.font = '12px -apple-system, sans-serif';
+  ctx.fillText('デバフなし — 複数の色の力を融合強化', w / 2, h / 2 - 162);
+
+  const bounds    = draftCardBounds(w, h);
+  const cardBounds = bounds.slice(0, 3);
+  const skipBound  = bounds[3];
+
+  cardBounds.forEach((b, i) => {
+    if (i >= draftChoices.length) return;
+    const ins = draftChoices[i];
+
+    // Card bg with gold border
+    ctx.fillStyle   = 'rgba(255,200,60,0.07)';
+    ctx.strokeStyle = 'rgba(255,200,60,0.55)';
+    ctx.lineWidth   = 1.5;
+    ctx.save();
+    ctx.beginPath(); ctx.roundRect(b.x, b.y, b.w, b.h, 10); ctx.fill(); ctx.stroke();
+    ctx.restore();
+
+    // Color count label
+    ctx.fillStyle = '#ffcc44';
+    ctx.font = 'bold 11px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${ins.colors.length}色融合`, b.x + b.w / 2, b.y + 20);
+
+    // Color swatches
+    const swatchR  = 9;
+    const swatchY  = b.y + 48;
+    const sw       = ins.colors.length;
+    const swSpacing = Math.min(22, (b.w - 20) / Math.max(sw, 1));
+    ins.colors.forEach((c, ci) => {
+      const sx = b.x + b.w / 2 + (ci - (sw - 1) / 2) * swSpacing;
+      ctx.fillStyle = COLOR_HEX[c];
+      ctx.beginPath(); ctx.arc(sx, swatchY, swatchR, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    });
+
+    // Effects list
+    ins.effects.forEach((eff, ei) => {
+      const ey = b.y + 78 + ei * 28;
+      ctx.fillStyle = COLOR_HEX[ins.colors[ei]];
+      ctx.font = 'bold 10px -apple-system, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('▲', b.x + 10, ey);
+      ctx.fillStyle = '#fff';
+      ctx.font = '11px -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      wrapText(ctx, eff.label, b.x + b.w / 2, ey, b.w - 22, 14);
+    });
+
+    // Tap hint
+    ctx.fillStyle = 'rgba(255,200,60,0.45)';
+    ctx.font = '10px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('タップで取得', b.x + b.w / 2, b.y + b.h - 12);
+  });
+
+  // Skip button
+  ctx.fillStyle   = 'rgba(255,255,255,0.07)';
+  ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+  ctx.lineWidth   = 1;
+  ctx.save();
+  ctx.beginPath(); ctx.roundRect(skipBound.x, skipBound.y, skipBound.w, skipBound.h, 8);
+  ctx.fill(); ctx.stroke();
+  ctx.restore();
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.font = '13px -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('見送る（最少耐久の鍵を補充）', skipBound.x + skipBound.w / 2, skipBound.y + skipBound.h / 2 + 4);
+
+  if (activeInscriptions.length > 0) {
+    ctx.fillStyle = 'rgba(255,255,255,0.28)';
+    ctx.font = '11px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`刻印 ${activeInscriptions.length}個 取得済み`, w / 2, h - 40);
+  }
+}
+
+function renderPause(w, h) {
+  // Dark frosted overlay
+  ctx.fillStyle = 'rgba(14, 12, 24, 0.78)';
+  ctx.fillRect(0, 0, w, h);
+
+  const cx = w / 2, cy = h / 2;
+  const cardW = Math.min(w - 48, 280), cardH = 220;
+  const cardX = cx - cardW / 2, cardY = cy - cardH / 2;
+
+  // Card
+  ctx.fillStyle = 'rgba(255,255,255,0.07)';
+  ctx.strokeStyle = 'rgba(255,255,255,0.14)';
+  ctx.lineWidth = 1;
+  ctx.save();
+  ctx.beginPath(); ctx.roundRect(cardX, cardY, cardW, cardH, 14); ctx.fill(); ctx.stroke();
+  ctx.restore();
+
+  // Title
+  ctx.fillStyle = '#d8d6e8';
+  ctx.font = 'bold 26px -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('PAUSE', cx, cardY + 50);
+
+  // Divider
+  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(cardX + 24, cardY + 62); ctx.lineTo(cardX + cardW - 24, cardY + 62);
+  ctx.stroke();
+
+  // Resume button
+  const resumeY = cardY + 82;
+  ctx.fillStyle   = 'rgba(80,200,100,0.14)';
+  ctx.strokeStyle = 'rgba(80,200,100,0.55)';
+  ctx.lineWidth   = 1.5;
+  ctx.save();
+  ctx.beginPath(); ctx.roundRect(cx - 90, resumeY, 180, 48, 9); ctx.fill(); ctx.stroke();
+  ctx.restore();
+  ctx.fillStyle = '#7de899';
+  ctx.font = 'bold 16px -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('再開', cx, resumeY + 30);
+
+  // Reset button
+  const resetY = cardY + 146;
+  ctx.fillStyle   = 'rgba(200,70,70,0.12)';
+  ctx.strokeStyle = 'rgba(200,70,70,0.42)';
+  ctx.lineWidth   = 1.5;
+  ctx.save();
+  ctx.beginPath(); ctx.roundRect(cx - 90, resetY, 180, 48, 9); ctx.fill(); ctx.stroke();
+  ctx.restore();
+  ctx.fillStyle = '#e07878';
+  ctx.font = 'bold 16px -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('リセット', cx, resetY + 30);
 }
 
 function wrapText(ctx, text, cx, y, maxW, lineH) {
