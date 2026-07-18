@@ -421,6 +421,17 @@ function spawnFusionInscriptionOrb() {
   });
 }
 
+function spawnEnemyBoostOrb() {
+  const angle = Math.random() * Math.PI * 2;
+  const dist  = 450 + Math.random() * 350;
+  inscriptionOrbs.push({
+    type:  'enemy_boost',
+    x:     player.x + Math.cos(angle) * dist,
+    y:     player.y + Math.sin(angle) * dist,
+    pulse: 0,
+  });
+}
+
 function generateFusionInscription() {
   const w = colorWeather();
   let pool = COLORS.filter(c => w[c] > 0.05);
@@ -436,7 +447,13 @@ function generateFusionInscription() {
 function openDraft(orbIndex) {
   const orb = inscriptionOrbs[orbIndex];
   inscriptionOrbs.splice(orbIndex, 1);
-  if (orb.type === 'fusion') {
+  if (orb.type === 'enemy_boost') {
+    // Instant effect: increment enemy boost stacks
+    enemyBoostStacks++;
+    playEnemyBoostKeySound();
+    addFx('explosion', player.x, player.y, { color: '#ff4400', maxAge: 35 });
+    screenFlash = { r: 220, g: 60, b: 20, alpha: 0.18 };
+  } else if (orb.type === 'fusion') {
     // Fusion orb → key-merge selection UI
     fusionSlotA = -1;
     state = State.FUSION_SELECT;
@@ -753,11 +770,7 @@ function allColorsFused() {
 }
 
 function dropKey(x, y, color) {
-  if (allColorsFused()) {
-    keyDrops.push({ x, y, type: 'enemy_boost', age: 0 });
-  } else {
-    keyDrops.push({ x, y, color, age: 0 });
-  }
+  keyDrops.push({ x, y, color, age: 0 });
 }
 
 function updateKeyDrops() {
@@ -765,14 +778,8 @@ function updateKeyDrops() {
     const k = keyDrops[i];
     k.age++;
     if (Math.hypot(player.x - k.x, player.y - k.y) < KEY_PICK_RADIUS) {
-      if (k.type === 'enemy_boost') {
-        enemyBoostStacks++;
-        playEnemyBoostKeySound();
-        addFx('keyCollect', k.x, k.y, { color: '#ff6622', maxAge: 28 });
-      } else {
-        collectKey(k.color);
-        addFx('keyCollect', k.x, k.y, { color: COLOR_HEX[k.color], maxAge: 22 });
-      }
+      collectKey(k.color);
+      addFx('keyCollect', k.x, k.y, { color: COLOR_HEX[k.color], maxAge: 22 });
       keyDrops.splice(i, 1);
     }
   }
@@ -1492,9 +1499,14 @@ function fullyUnlock(enemy) {
   }
 
   // Fusion inscription orb (200 kills, then every 100)
+  // If all colors are already fused, spawn enemy boost inscription instead
   if (killCount >= nextFusionInsAt) {
     nextFusionInsAt += FUSION_INS_INTERVAL;
-    spawnFusionInscriptionOrb();
+    if (allColorsFused()) {
+      spawnEnemyBoostOrb();
+    } else {
+      spawnFusionInscriptionOrb();
+    }
   }
 
   // B-S2: heal on kill chance
@@ -1960,97 +1972,47 @@ function renderEffectsWorld(t) {
 
 function renderKeyDrops(t) {
   for (const k of keyDrops) {
-    const bob   = Math.sin(k.age * KEY_BOB_SPEED / 60 * Math.PI * 2) * KEY_BOB_AMP;
-    const x     = k.x, y = k.y + bob;
+    const bob  = Math.sin(k.age * KEY_BOB_SPEED / 60 * Math.PI * 2) * KEY_BOB_AMP;
+    const col  = COLOR_HEX[k.color];
+    const x    = k.x, y = k.y + bob;
+    const sz   = 9;
     const pulse = 0.75 + 0.25 * Math.sin(t * 3 + k.age * 0.08);
 
     ctx.save();
     ctx.translate(x, y);
 
-    if (k.type === 'enemy_boost') {
-      // Enemy boost key: pentagon split into 5 color segments
-      const sz = 11;
-      const segA = (Math.PI * 2) / COLORS.length;
-      const rot  = -Math.PI / 2; // point upward
+    // Glow
+    ctx.globalAlpha = 0.18 * pulse;
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.arc(0, 0, sz * 1.9, 0, Math.PI * 2);
+    ctx.fill();
 
-      // Outer glow
-      ctx.globalAlpha = 0.22 * pulse;
-      ctx.fillStyle = '#ff6622';
-      ctx.beginPath();
-      ctx.arc(0, 0, sz * 2.1, 0, Math.PI * 2);
-      ctx.fill();
+    // Diamond shape
+    ctx.globalAlpha = 0.9 * pulse;
+    ctx.fillStyle = col;
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(0, -sz);
+    ctx.lineTo(sz * 0.65, 0);
+    ctx.lineTo(0, sz);
+    ctx.lineTo(-sz * 0.65, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 0.6 * pulse;
+    ctx.stroke();
 
-      // Pentagon segments, one per color
-      COLORS.forEach((c, ci) => {
-        const a0 = rot + ci * segA, a1 = rot + (ci + 1) * segA;
-        ctx.globalAlpha = 0.9 * pulse;
-        ctx.fillStyle = COLOR_HEX[c];
-        ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.arc(0, 0, sz, a0, a1);
-        ctx.closePath();
-        ctx.fill();
-      });
-
-      // Pentagon outline
-      ctx.globalAlpha = 0.8 * pulse;
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 1.4;
-      ctx.beginPath();
-      for (let i = 0; i < COLORS.length; i++) {
-        const a = rot + i * segA;
-        i === 0 ? ctx.moveTo(Math.cos(a) * sz, Math.sin(a) * sz)
-                : ctx.lineTo(Math.cos(a) * sz, Math.sin(a) * sz);
-      }
-      ctx.closePath();
-      ctx.stroke();
-
-      // "+" mark in center
-      ctx.globalAlpha = 0.85 * pulse;
-      ctx.fillStyle = '#fff';
-      ctx.font = `bold ${sz}px -apple-system, monospace`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('+', 0, 0);
-      ctx.textBaseline = 'alphabetic';
-
-    } else {
-      const col = COLOR_HEX[k.color];
-      const sz  = 9;
-
-      // Glow
-      ctx.globalAlpha = 0.18 * pulse;
-      ctx.fillStyle = col;
-      ctx.beginPath();
-      ctx.arc(0, 0, sz * 1.9, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Diamond shape
-      ctx.globalAlpha = 0.9 * pulse;
-      ctx.fillStyle = col;
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 1.2;
-      ctx.beginPath();
-      ctx.moveTo(0, -sz);
-      ctx.lineTo(sz * 0.65, 0);
-      ctx.lineTo(0, sz);
-      ctx.lineTo(-sz * 0.65, 0);
-      ctx.closePath();
-      ctx.fill();
-      ctx.globalAlpha = 0.6 * pulse;
-      ctx.stroke();
-
-      // Inner highlight
-      ctx.globalAlpha = 0.4 * pulse;
-      ctx.fillStyle = '#fff';
-      ctx.beginPath();
-      ctx.moveTo(0, -sz * 0.55);
-      ctx.lineTo(sz * 0.3, -sz * 0.05);
-      ctx.lineTo(0, sz * 0.15);
-      ctx.lineTo(-sz * 0.3, -sz * 0.05);
-      ctx.closePath();
-      ctx.fill();
-    }
+    // Inner highlight
+    ctx.globalAlpha = 0.4 * pulse;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.moveTo(0, -sz * 0.55);
+    ctx.lineTo(sz * 0.3, -sz * 0.05);
+    ctx.lineTo(0, sz * 0.15);
+    ctx.lineTo(-sz * 0.3, -sz * 0.05);
+    ctx.closePath();
+    ctx.fill();
 
     ctx.restore();
   }
@@ -2695,7 +2657,35 @@ function renderInscriptionOrbs(t) {
     ctx.save();
     ctx.translate(orb.x, orb.y);
 
-    if (orb.type === 'fusion') {
+    if (orb.type === 'enemy_boost') {
+      // Angry pulsing red ring + warning diamond
+      const r = 22 + pulse * 5;
+      ctx.globalAlpha = 0.22 + pulse * 0.15;
+      ctx.strokeStyle = '#ff4400'; ctx.lineWidth = 5;
+      ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.stroke();
+      // Dashed faster ring
+      ctx.setLineDash([6, 4]); ctx.lineDashOffset = -t * 40;
+      ctx.globalAlpha = 0.45 + pulse * 0.3;
+      ctx.strokeStyle = '#ff8844'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(0, 0, r - 6, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+      // Dark red diamond
+      ctx.globalAlpha = 0.85 + pulse * 0.15;
+      ctx.fillStyle = '#cc2200';
+      ctx.strokeStyle = '#ff6622'; ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(0, -12); ctx.lineTo(9, 0); ctx.lineTo(0, 12); ctx.lineTo(-9, 0);
+      ctx.closePath(); ctx.fill();
+      ctx.globalAlpha = 0.7 + pulse * 0.2;
+      ctx.stroke();
+      // "+" symbol in center
+      ctx.globalAlpha = 0.9;
+      ctx.fillStyle = '#ffcc88';
+      ctx.font = 'bold 11px -apple-system, monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('+', 0, 0);
+      ctx.textBaseline = 'alphabetic';
+    } else if (orb.type === 'fusion') {
       // Multi-color spinning ring segments
       const segColors = ['#e8453c', '#3c7de8', '#ddb830', '#3db86a', '#9844e8'];
       const numSeg = 5;
@@ -2752,8 +2742,9 @@ function renderInscriptionEdgeIndicators() {
     const d     = Math.hypot(orb.x - player.x, orb.y - player.y);
     if (d < 350) continue;
     const { x, y } = screenEdgePoint(angle, margin);
-    const isFusion  = orb.type === 'fusion';
-    const col       = isFusion ? '#ffcc44' : RARITY_COLOR[orb.rarity];
+    const isFusion     = orb.type === 'fusion';
+    const isEnemyBoost = orb.type === 'enemy_boost';
+    const col = isEnemyBoost ? '#ff4400' : isFusion ? '#ffcc44' : RARITY_COLOR[orb.rarity];
     const pulse     = 0.72 + 0.28 * Math.sin(t * 3.8 + (orb.pulse || 0) * 0.05);
 
     ctx.save();
@@ -2785,7 +2776,7 @@ function renderInscriptionEdgeIndicators() {
     ctx.fillStyle = col;
     ctx.font = `bold 8px -apple-system, sans-serif`;
     ctx.textAlign = 'center';
-    ctx.fillText(isFusion ? '融合' : '刻印', 0, 22);
+    ctx.fillText(isEnemyBoost ? '敵増' : isFusion ? '融合' : '刻印', 0, 22);
 
     // Small direction tick pointing toward orb (outside the badge)
     ctx.globalAlpha = 0.65 * pulse;
