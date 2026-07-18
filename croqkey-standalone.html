@@ -580,6 +580,7 @@ let combo          = 0;
 let maxCombo       = 0;
 let killCount      = 0;
 let comboMissCount = 0; // counts forgiven misses this combo chain
+let enemyBoostStacks = 0; // accumulated from enemy-boost key pickups (all-fused state)
 let untouchedStreak = 0; // B-X5: kills without taking damage
 let comboIdleFrames = 0; // D-R3: frames in IDLE without hitting
 let player_stunTimer = 0; // D-S5: input-freeze frames after hit (legacy; use player.stunTimer)
@@ -762,8 +763,16 @@ const KEY_PICK_RADIUS  = 28;    // auto-collect distance
 const KEY_BOB_AMP      = 3.5;   // pixel amplitude of bob
 const KEY_BOB_SPEED    = 2.2;   // radians/s
 
+function allColorsFused() {
+  return COLORS.every(c => keySlots.some(s => s.colors.includes(c)));
+}
+
 function dropKey(x, y, color) {
-  keyDrops.push({ x, y, color, age: 0 });
+  if (allColorsFused()) {
+    keyDrops.push({ x, y, type: 'enemy_boost', age: 0 });
+  } else {
+    keyDrops.push({ x, y, color, age: 0 });
+  }
 }
 
 function updateKeyDrops() {
@@ -771,8 +780,14 @@ function updateKeyDrops() {
     const k = keyDrops[i];
     k.age++;
     if (Math.hypot(player.x - k.x, player.y - k.y) < KEY_PICK_RADIUS) {
-      collectKey(k.color);
-      addFx('keyCollect', k.x, k.y, { color: COLOR_HEX[k.color], maxAge: 22 });
+      if (k.type === 'enemy_boost') {
+        enemyBoostStacks++;
+        playEnemyBoostKeySound();
+        addFx('keyCollect', k.x, k.y, { color: '#ff6622', maxAge: 28 });
+      } else {
+        collectKey(k.color);
+        addFx('keyCollect', k.x, k.y, { color: COLOR_HEX[k.color], maxAge: 22 });
+      }
       keyDrops.splice(i, 1);
     }
   }
@@ -1081,6 +1096,40 @@ function playKeyPickupSound(color) {
   cg.gain.exponentialRampToValueAtTime(0.001, now + 0.012);
   co.connect(cg); cg.connect(master);
   cs.start(now); cs.stop(now + 0.018);
+}
+
+function playEnemyBoostKeySound() {
+  const a = ac();
+  const now = a.currentTime;
+  const master = a.createGain();
+  master.gain.setValueAtTime(0.32, now);
+  master.connect(a.destination);
+  // Low warning thud (drum-like)
+  const thud = a.createOscillator();
+  const tg = a.createGain();
+  thud.type = 'sine';
+  thud.frequency.setValueAtTime(120, now);
+  thud.frequency.exponentialRampToValueAtTime(55, now + 0.12);
+  tg.gain.setValueAtTime(1.0, now);
+  tg.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+  thud.connect(tg); tg.connect(master);
+  thud.start(now); thud.stop(now + 0.25);
+  // Short dissonant overtone
+  const over = a.createOscillator();
+  const og = a.createGain();
+  over.type = 'sawtooth';
+  over.frequency.setValueAtTime(210, now);
+  og.gain.setValueAtTime(0.28, now);
+  og.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+  over.connect(og); og.connect(master);
+  over.start(now); over.stop(now + 0.20);
+  // Noise burst
+  const { node: no, src: ns } = makeClickNode(a, 80, 0.04);
+  const ng = a.createGain();
+  ng.gain.setValueAtTime(0.5, now);
+  ng.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+  no.connect(ng); ng.connect(master);
+  ns.start(now); ns.stop(now + 0.05);
 }
 
 // ══════════════════════════════════════════════
@@ -1595,7 +1644,7 @@ function resetGame() {
   selectedSlotIdx = 0;
   fusionSlotA = -1;
   fusionSlotB = -1;
-  score = 0; frame = 0; gameTime = 0; spawnTimer = 0;
+  score = 0; frame = 0; gameTime = 0; spawnTimer = 0; enemyBoostStacks = 0;
   beamFlash = uiShake = ghostTimer = 0;
   screenFlash = null; connectedEnemy = null;
   combo = 0; maxCombo = 0; killCount = 0; comboMissCount = 0;
@@ -1725,10 +1774,11 @@ function update() {
   {
     const mods0    = getMods();
     const alive    = enemies.filter(e => e.alive).length;
-    const baseMax  = CFG.ENEMY_COUNT + Math.floor(gameTime / 30) + Math.round(mods0.enemyCountBonus);
-    const maxCount = Math.min(CFG.ENEMY_COUNT_MAX + Math.round(mods0.enemyCountBonus), baseMax);
+    const boostCount = enemyBoostStacks * 2;
+    const baseMax  = CFG.ENEMY_COUNT + Math.floor(gameTime / 30) + Math.round(mods0.enemyCountBonus) + boostCount;
+    const maxCount = Math.min(CFG.ENEMY_COUNT_MAX + Math.round(mods0.enemyCountBonus) + boostCount, baseMax);
     const baseInterval = Math.max(180, CFG.SPAWN_INTERVAL - Math.floor(gameTime / 20) * 40);
-    const interval = Math.max(90, Math.round(baseInterval * (1 + mods0.spawnIntervalMult)));
+    const interval = Math.max(60, Math.round(baseInterval * (1 + mods0.spawnIntervalMult - enemyBoostStacks * 0.12)));
     spawnTimer++;
     if (spawnTimer >= interval && alive < maxCount) {
       spawnEnemy();
@@ -1925,47 +1975,97 @@ function renderEffectsWorld(t) {
 
 function renderKeyDrops(t) {
   for (const k of keyDrops) {
-    const bob  = Math.sin(k.age * KEY_BOB_SPEED / 60 * Math.PI * 2) * KEY_BOB_AMP;
-    const col  = COLOR_HEX[k.color];
-    const x    = k.x, y = k.y + bob;
-    const sz   = 9;
+    const bob   = Math.sin(k.age * KEY_BOB_SPEED / 60 * Math.PI * 2) * KEY_BOB_AMP;
+    const x     = k.x, y = k.y + bob;
     const pulse = 0.75 + 0.25 * Math.sin(t * 3 + k.age * 0.08);
 
     ctx.save();
     ctx.translate(x, y);
 
-    // Glow
-    ctx.globalAlpha = 0.18 * pulse;
-    ctx.fillStyle = col;
-    ctx.beginPath();
-    ctx.arc(0, 0, sz * 1.9, 0, Math.PI * 2);
-    ctx.fill();
+    if (k.type === 'enemy_boost') {
+      // Enemy boost key: pentagon split into 5 color segments
+      const sz = 11;
+      const segA = (Math.PI * 2) / COLORS.length;
+      const rot  = -Math.PI / 2; // point upward
 
-    // Diamond shape
-    ctx.globalAlpha = 0.9 * pulse;
-    ctx.fillStyle = col;
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 1.2;
-    ctx.beginPath();
-    ctx.moveTo(0, -sz);
-    ctx.lineTo(sz * 0.65, 0);
-    ctx.lineTo(0, sz);
-    ctx.lineTo(-sz * 0.65, 0);
-    ctx.closePath();
-    ctx.fill();
-    ctx.globalAlpha = 0.6 * pulse;
-    ctx.stroke();
+      // Outer glow
+      ctx.globalAlpha = 0.22 * pulse;
+      ctx.fillStyle = '#ff6622';
+      ctx.beginPath();
+      ctx.arc(0, 0, sz * 2.1, 0, Math.PI * 2);
+      ctx.fill();
 
-    // Inner highlight
-    ctx.globalAlpha = 0.4 * pulse;
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.moveTo(0, -sz * 0.55);
-    ctx.lineTo(sz * 0.3, -sz * 0.05);
-    ctx.lineTo(0, sz * 0.15);
-    ctx.lineTo(-sz * 0.3, -sz * 0.05);
-    ctx.closePath();
-    ctx.fill();
+      // Pentagon segments, one per color
+      COLORS.forEach((c, ci) => {
+        const a0 = rot + ci * segA, a1 = rot + (ci + 1) * segA;
+        ctx.globalAlpha = 0.9 * pulse;
+        ctx.fillStyle = COLOR_HEX[c];
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.arc(0, 0, sz, a0, a1);
+        ctx.closePath();
+        ctx.fill();
+      });
+
+      // Pentagon outline
+      ctx.globalAlpha = 0.8 * pulse;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      for (let i = 0; i < COLORS.length; i++) {
+        const a = rot + i * segA;
+        i === 0 ? ctx.moveTo(Math.cos(a) * sz, Math.sin(a) * sz)
+                : ctx.lineTo(Math.cos(a) * sz, Math.sin(a) * sz);
+      }
+      ctx.closePath();
+      ctx.stroke();
+
+      // "+" mark in center
+      ctx.globalAlpha = 0.85 * pulse;
+      ctx.fillStyle = '#fff';
+      ctx.font = `bold ${sz}px -apple-system, monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('+', 0, 0);
+      ctx.textBaseline = 'alphabetic';
+
+    } else {
+      const col = COLOR_HEX[k.color];
+      const sz  = 9;
+
+      // Glow
+      ctx.globalAlpha = 0.18 * pulse;
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.arc(0, 0, sz * 1.9, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Diamond shape
+      ctx.globalAlpha = 0.9 * pulse;
+      ctx.fillStyle = col;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(0, -sz);
+      ctx.lineTo(sz * 0.65, 0);
+      ctx.lineTo(0, sz);
+      ctx.lineTo(-sz * 0.65, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = 0.6 * pulse;
+      ctx.stroke();
+
+      // Inner highlight
+      ctx.globalAlpha = 0.4 * pulse;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.moveTo(0, -sz * 0.55);
+      ctx.lineTo(sz * 0.3, -sz * 0.05);
+      ctx.lineTo(0, sz * 0.15);
+      ctx.lineTo(-sz * 0.3, -sz * 0.05);
+      ctx.closePath();
+      ctx.fill();
+    }
 
     ctx.restore();
   }
@@ -2476,8 +2576,12 @@ function renderHUD(w, h) {
   ctx.fillText(`${Math.floor(gameTime)}s`, 16, 30);
 
   const alive = enemies.filter(e => e.alive).length;
-  ctx.fillStyle = '#bbb'; ctx.font = '11px -apple-system, monospace'; ctx.textAlign = 'right';
-  ctx.fillText(`トジテ ×${alive}`, w - 16, 48);
+  ctx.fillStyle = '#bbb'; ctx.font = '11px -apple-system, monospace'; ctx.textAlign = 'left';
+  ctx.fillText(`敵 ×${alive}`, 16, 44);
+  if (enemyBoostStacks > 0) {
+    ctx.fillStyle = '#ff8844'; ctx.font = 'bold 10px -apple-system, monospace'; ctx.textAlign = 'left';
+    ctx.fillText(`敵増 +${enemyBoostStacks * 2}  速 +${Math.round(enemyBoostStacks * 12)}%`, 16, 58);
+  }
 
   // Combo display (top center below HP)
   if (combo >= 2) {
