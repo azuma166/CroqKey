@@ -787,6 +787,7 @@ function collectKey(color) {
     const actualDur = Math.max(1, Math.round(baseDur * Math.max(0.1, 1 + mods.keyDropDurMult)));
     slot.dur = Math.min(cap, slot.dur + actualDur);
   }
+  playKeyPickupSound(color);
 }
 
 // ══════════════════════════════════════════════
@@ -1048,6 +1049,34 @@ function playDraftSkipSound() {
     osc.connect(g); g.connect(master);
     osc.start(now + delay); osc.stop(now + delay + 0.33);
   });
+}
+
+// 鍵取得音: 色ごとのピッチで短いチャイム
+function playKeyPickupSound(color) {
+  const a = ac();
+  const now = a.currentTime;
+  const pitchMap = { red: 659.26, blue: 587.33, yellow: 783.99, green: 523.25, purple: 698.46 };
+  const freq = pitchMap[color] || 659.26;
+  const master = a.createGain();
+  master.gain.setValueAtTime(0.28, now);
+  master.connect(a.destination);
+  // 基音 + 1オクターブ上の倍音
+  [[freq, 1.0], [freq * 2, 0.35]].forEach(([f, amp]) => {
+    const osc = a.createOscillator(), g = a.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(f, now);
+    g.gain.setValueAtTime(amp, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.30);
+    osc.connect(g); g.connect(master);
+    osc.start(now); osc.stop(now + 0.35);
+  });
+  // 短いクリック
+  const { node: co, src: cs } = makeClickNode(a, freq * 4, 0.015);
+  const cg = a.createGain();
+  cg.gain.setValueAtTime(0.6, now);
+  cg.gain.exponentialRampToValueAtTime(0.001, now + 0.012);
+  co.connect(cg); cg.connect(master);
+  cs.start(now); cs.stop(now + 0.018);
 }
 
 // ══════════════════════════════════════════════
