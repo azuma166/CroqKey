@@ -188,12 +188,8 @@ function getMods() {
     fusionEarlySpawn: 0,
   };
   for (const ins of activeInscriptions) {
-    if (ins.type === 'fusion') {
-      for (const eff of ins.effects) applyInscriptionMod(m, eff);
-    } else {
-      applyInscriptionMod(m, ins.buff);
-      applyInscriptionMod(m, ins.debuff);
-    }
+    applyInscriptionMod(m, ins.buff);
+    applyInscriptionMod(m, ins.debuff);
   }
   // clamp some
   m.globalDmgMult = Math.max(0.1, m.globalDmgMult);
@@ -308,13 +304,28 @@ function openDraft(orbIndex) {
   const orb = inscriptionOrbs[orbIndex];
   inscriptionOrbs.splice(orbIndex, 1);
   if (orb.type === 'fusion') {
-    draftChoices = [generateFusionInscription(), generateFusionInscription(), generateFusionInscription()];
-    draftIsFusion = true;
+    // Fusion orb → key-merge selection UI
+    fusionSlotA = -1;
+    state = State.FUSION_SELECT;
   } else {
     draftChoices = [generateInscription(), generateInscription(), generateInscription()];
-    draftIsFusion = false;
+    state = State.DRAFT;
   }
-  state = State.DRAFT;
+}
+
+function fuseSlots(idxA, idxB) {
+  if (idxA === idxB || idxA < 0 || idxB < 0 || idxA >= keySlots.length || idxB >= keySlots.length) return;
+  const a = keySlots[idxA], b = keySlots[idxB];
+  const merged = {
+    colors: [...new Set([...a.colors, ...b.colors])],
+    dur: Math.min(durCap(), a.dur + b.dur),
+  };
+  const hi = Math.max(idxA, idxB), lo = Math.min(idxA, idxB);
+  keySlots.splice(hi, 1);
+  keySlots.splice(lo, 1);
+  keySlots.splice(lo, 0, merged);
+  selectedSlotIdx = Math.min(selectedSlotIdx, keySlots.length - 1);
+  if (navigator.vibrate) navigator.vibrate([15, 8, 15, 8, 25]);
 }
 
 function applyDraftChoice(index) {
@@ -322,22 +333,15 @@ function applyDraftChoice(index) {
     const ins = draftChoices[index];
     activeInscriptions.push(ins);
     if (navigator.vibrate) {
-      if (ins.type === 'fusion') {
-        navigator.vibrate([20, 10, 20, 10, 20]);
-      } else {
-        navigator.vibrate(ins.rarity === RARITY.EPIC ? [30, 20, 30] : ins.rarity === RARITY.RARE ? [20] : [10]);
-      }
+      navigator.vibrate(ins.rarity === RARITY.EPIC ? [30, 20, 30] : ins.rarity === RARITY.RARE ? [20] : [10]);
     }
   } else {
-    // Skip: refill most depleted key to full
-    let minDur = Infinity, worstColor = 'red';
-    for (const c of COLORS) {
-      if (keyInventory[c] < minDur) { minDur = keyInventory[c]; worstColor = c; }
-    }
-    keyInventory[worstColor] = CFG.KEY_DROP_DUR * 3;
+    // Skip: refill least-durable slot
+    let minSlot = keySlots[0];
+    for (const s of keySlots) { if (s.dur < minSlot.dur) minSlot = s; }
+    if (minSlot) minSlot.dur = CFG.KEY_DROP_DUR * 3;
   }
-  draftChoices  = [];
-  draftIsFusion = false;
+  draftChoices = [];
   state = State.IDLE;
 }
 
@@ -412,7 +416,7 @@ function s2w(sx, sy) { return { x: sx + cam.x, y: sy + cam.y }; }
 // ══════════════════════════════════════════════
 //  GAME STATE
 // ══════════════════════════════════════════════
-const State = { IDLE: 'idle', CONNECTED: 'connected', GAMEOVER: 'gameover', DRAFT: 'draft', PAUSED: 'paused' };
+const State = { IDLE: 'idle', CONNECTED: 'connected', GAMEOVER: 'gameover', DRAFT: 'draft', PAUSED: 'paused', FUSION_SELECT: 'fusion_select' };
 let state          = State.IDLE;
 let connectedEnemy = null;
 let score          = 0;
@@ -434,8 +438,16 @@ let draftIsFusion        = false;
 let nextOrbAt            = ORB_UNLOCK_KILLS;
 let nextFusionInsAt      = FUSION_INS_UNLOCK;
 let stateBeforePause     = State.IDLE;
-// keyInventory stores durability totals, not counts
-const keyInventory = { red: 16, blue: 0, yellow: 0, green: 0, purple: 0 };
+// Key slots — each slot can fuse multiple colors together
+const keySlots = [
+  { colors: ['red'],    dur: 16 },
+  { colors: ['blue'],   dur: 0  },
+  { colors: ['yellow'], dur: 0  },
+  { colors: ['green'],  dur: 0  },
+  { colors: ['purple'], dur: 0  },
+];
+let selectedSlotIdx = 0;
+let fusionSlotA     = -1; // first slot chosen in FUSION_SELECT mode
 
 // ══════════════════════════════════════════════
 //  PLAYER  (world coords)
@@ -619,7 +631,8 @@ function durCap() {
 function collectKey(color) {
   const mods = getMods();
   const cap  = durCap();
-  keyInventory[color] = Math.min(cap, (keyInventory[color] || 0) + CFG.KEY_DROP_DUR + mods.keyDropDurBonus);
+  const slot = keySlots.find(s => s.colors.includes(color));
+  if (slot) slot.dur = Math.min(cap, slot.dur + CFG.KEY_DROP_DUR + mods.keyDropDurBonus);
 }
 
 // ══════════════════════════════════════════════
@@ -740,7 +753,7 @@ function handlePanelTap(sx, sy) {
   const slots = keyPanelSlots();
   for (const s of slots) {
     if (Math.hypot(sx - s.cx, sy - s.cy) < s.r + 6) {
-      if (keyInventory[s.color] > 0) selectedKeyColor = s.color;
+      if (s.slot.dur > 0) selectedSlotIdx = s.idx;
       return true;
     }
   }
@@ -760,6 +773,28 @@ function pointerDown(sx, sy) {
       state = State.PAUSED;
       return;
     }
+  }
+  // FUSION_SELECT: slot tap selects A, then B → fuse
+  if (state === State.FUSION_SELECT) {
+    const fslots = keyPanelSlots();
+    for (const s of fslots) {
+      if (Math.hypot(sx - s.cx, sy - s.cy) < s.r + 10) {
+        if (fusionSlotA === -1) {
+          fusionSlotA = s.idx;
+        } else if (s.idx !== fusionSlotA) {
+          fuseSlots(fusionSlotA, s.idx);
+          fusionSlotA = -1;
+          state = State.IDLE;
+        }
+        touch = null;
+        return;
+      }
+    }
+    // Tap outside panel = cancel
+    fusionSlotA = -1;
+    state = State.IDLE;
+    touch = null;
+    return;
   }
   // PAUSED: record touch for button detection in pointerUp
   if (state === State.PAUSED) {
@@ -868,10 +903,11 @@ function connectEnemy(enemy) {
   ghostTimer     = CFG.GHOST_FRAMES;
 }
 
-let selectedKeyColor = 'red';
-
+function activeSlot() {
+  return keySlots[Math.min(selectedSlotIdx, keySlots.length - 1)] || keySlots[0] || { colors: ['red'], dur: 0 };
+}
 function activeKeyColor() {
-  return selectedKeyColor;
+  return activeSlot().colors[0];
 }
 
 function tryUnlock(dx, dy) {
@@ -881,12 +917,13 @@ function tryUnlock(dx, dy) {
   const mods      = getMods();
   const tolerance = CFG.UNLOCK_TOLERANCE + mods.flickTolerance;
   if (Math.abs(diff) < Math.max(5 * Math.PI / 180, tolerance)) {
-    const keyCol  = activeKeyColor();
-    const hasKey  = keyInventory[keyCol] > 0;
-    const redCritAll = mods.redCritAll > 0 && keyCol === 'red';
-    const colorMatch = (connectedEnemy.colors || [connectedEnemy.color]).includes(keyCol);
-    const crit    = (hasKey || mods.depletedEffects > 0) &&
-                    (colorMatch || redCritAll);
+    const slot       = activeSlot();
+    const slotColors = slot.colors;
+    const hasKey     = slot.dur > 0;
+    const redCritAll = mods.redCritAll > 0 && slotColors.includes('red');
+    const enemyColors = connectedEnemy.colors || [connectedEnemy.color];
+    const colorMatch = slotColors.some(c => enemyColors.includes(c));
+    const crit       = (hasKey || mods.depletedEffects > 0) && (colorMatch || redCritAll);
 
     const effectiveCoeff = CFG.COMBO_COEFF + mods.comboCoeff;
     const comboMult = 1 + effectiveCoeff * Math.sqrt(combo);
@@ -894,7 +931,7 @@ function tryUnlock(dx, dy) {
     const dmg = Math.max(1, Math.round(comboMult * mods.globalDmgMult * (crit ? critBonus : 1)));
 
     if (hasKey) {
-      keyInventory[keyCol] = Math.max(0, keyInventory[keyCol] - (crit ? CFG.DUR_COST_CRIT : CFG.DUR_COST_NORMAL));
+      slot.dur = Math.max(0, slot.dur - (crit ? CFG.DUR_COST_CRIT : CFG.DUR_COST_NORMAL));
     }
 
     combo++;
@@ -920,7 +957,10 @@ function tryUnlock(dx, dy) {
       dmg,
     });
     if (crit && navigator.vibrate) navigator.vibrate(14);
-    if (hasKey || mods.depletedEffects > 0) applyKeyEffect(keyCol, connectedEnemy);
+    // Apply all effects of every color in the active slot
+    if (hasKey || mods.depletedEffects > 0) {
+      for (const col of slotColors) applyKeyEffect(col, connectedEnemy);
+    }
     if (connectedEnemy.hp <= 0) {
       fullyUnlock(connectedEnemy);
     } else {
@@ -1037,10 +1077,10 @@ function fullyUnlock(enemy) {
     player.hp = Math.min(CFG.PLAYER_HP_MAX + mods.maxHpBonus, player.hp + 1);
     addFx('heal', player.x, player.y, { maxAge: 25 });
   }
-  // B-M2: bonus durability on kill for the active key color
+  // B-M2: bonus durability on kill for the active slot
   if (mods.bonusDurOnKill > 0) {
-    const kc = activeKeyColor();
-    keyInventory[kc] = Math.min(durCap(), keyInventory[kc] + mods.bonusDurOnKill);
+    const s = activeSlot();
+    s.dur = Math.min(durCap(), s.dur + mods.bonusDurOnKill);
   }
   const hex = COLOR_HEX[enemy.color] || CFG.KEY_COLOR;
   const [er, eg, eb] = [
@@ -1130,12 +1170,19 @@ function resetGame() {
   enemies.length = 0;
   effects.length = 0;
   keyDrops.length = 0;
-  for (const c of COLORS) keyInventory[c] = 0;
-  keyInventory.red = 16;
+  keySlots.length = 0;
+  keySlots.push(
+    { colors: ['red'],    dur: 16 },
+    { colors: ['blue'],   dur: 0  },
+    { colors: ['yellow'], dur: 0  },
+    { colors: ['green'],  dur: 0  },
+    { colors: ['purple'], dur: 0  },
+  );
+  selectedSlotIdx = 0;
+  fusionSlotA = -1;
   score = 0; frame = 0; gameTime = 0; spawnTimer = 0;
   beamFlash = uiShake = ghostTimer = 0;
   screenFlash = null; connectedEnemy = null;
-  selectedKeyColor = 'red';
   combo = 0; maxCombo = 0; killCount = 0; comboMissCount = 0;
   lastResult = null;
   activeInscriptions.length = 0;
@@ -1154,7 +1201,7 @@ function resetGame() {
 //  UPDATE
 // ══════════════════════════════════════════════
 function update() {
-  if (state === State.GAMEOVER || state === State.DRAFT || state === State.PAUSED) return;
+  if (state === State.GAMEOVER || state === State.DRAFT || state === State.PAUSED || state === State.FUSION_SELECT) return;
   frame++;
   gameTime = frame / 60;
   const sf = state === State.CONNECTED ? CFG.SLOW_FACTOR : 1.0;
@@ -1327,7 +1374,8 @@ function render() {
   renderHUD(w, h);
   if (state === State.GAMEOVER) renderGameOver(w, h);
   if (state === State.DRAFT)    renderDraft(w, h, t);
-  if (state === State.PAUSED)   renderPause(w, h);
+  if (state === State.PAUSED)        renderPause(w, h);
+  if (state === State.FUSION_SELECT) renderFusionSelect(w, h, t);
 }
 
 function drawInfiniteGrid() {
@@ -1573,21 +1621,29 @@ function renderEnemy(e, t) {
     ctx.globalAlpha = 1;
   }
 
-  // Body — for fusion enemies use a conic-like multi-color ring
+  // Body — fusion: gradient fill + colored dashed rings per component
   if (e.fusion && allColors.length > 1) {
-    const sliceAngle = (Math.PI * 2) / allColors.length;
-    for (let ci = 0; ci < allColors.length; ci++) {
-      const sc = COLOR_HEX[allColors[ci]];
-      ctx.globalAlpha = focused ? 0.22 : 0.12;
-      ctx.fillStyle   = sc;
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.arc(0, 0, e.r, ci * sliceAngle - Math.PI / 2, (ci + 1) * sliceAngle - Math.PI / 2);
-      ctx.closePath(); ctx.fill();
-    }
+    const grad = ctx.createLinearGradient(-e.r, 0, e.r, 0);
+    allColors.forEach((c, ci) => {
+      const stop = ci / Math.max(allColors.length - 1, 1);
+      grad.addColorStop(stop, COLOR_HEX[c] + (focused ? '55' : '2a'));
+    });
+    ctx.fillStyle = grad;
     ctx.globalAlpha = 1;
-    ctx.strokeStyle = focused ? '#111' : '#555';
-    ctx.lineWidth   = focused ? 2.5 : 1.5;
+    ctx.beginPath(); ctx.arc(0, 0, e.r, 0, Math.PI * 2); ctx.fill();
+    // A dashed ring per color component, inset from each other
+    allColors.forEach((c, ci) => {
+      ctx.globalAlpha = 0.50;
+      ctx.strokeStyle = COLOR_HEX[c];
+      ctx.lineWidth   = 2;
+      ctx.setLineDash([5, 4]);
+      ctx.lineDashOffset = -ci * 7;
+      ctx.beginPath(); ctx.arc(0, 0, e.r - 2 - ci * 4, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+    });
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = focused ? '#111' : '#444';
+    ctx.lineWidth   = focused ? 2.5 : 1.8;
     ctx.beginPath(); ctx.arc(0, 0, e.r, 0, Math.PI * 2); ctx.stroke();
   } else {
     ctx.fillStyle   = focused ? `${ecol}28` : `${ecol}12`;
@@ -1612,10 +1668,11 @@ function renderEnemy(e, t) {
     ctx.beginPath(); ctx.arc(ox, -e.r - 5, 3, 0, Math.PI * 2); ctx.fill();
   });
 
-  // HP pips (enemy primary color)
+  // HP pips — alternate component colors for fusion enemies
   for (let i = 0; i < e.maxHp; i++) {
     const a = (i / e.maxHp) * Math.PI * 2 - Math.PI * 0.5;
-    ctx.fillStyle = i < e.hp ? ecol : '#ccc';
+    const pipCol = COLOR_HEX[allColors[i % allColors.length]];
+    ctx.fillStyle = i < e.hp ? pipCol : '#ccc';
     ctx.beginPath(); ctx.arc(Math.cos(a) * (e.r + 7), Math.sin(a) * (e.r + 7), 2.5, 0, Math.PI * 2); ctx.fill();
   }
 
@@ -1660,9 +1717,17 @@ function renderPlayer(t) {
     ctx.beginPath(); ctx.moveTo(ex - player.r * 0.28, ey0); ctx.lineTo(ex + player.r * 0.28, ey0); ctx.stroke();
   }
 
-  ctx.fillStyle = CFG.KEY_COLOR; ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.arc(player.r * 0.68, -player.r * 0.68, player.r * 0.28, 0, Math.PI * 2);
-  ctx.fill(); ctx.stroke();
+  const pSlot = activeSlot();
+  const dotX  = player.r * 0.68, dotY = -player.r * 0.68, dotR = player.r * 0.28;
+  if (pSlot.colors.length > 1) {
+    const grad = ctx.createLinearGradient(dotX - dotR, dotY, dotX + dotR, dotY);
+    pSlot.colors.forEach((c, ci) => grad.addColorStop(ci / Math.max(pSlot.colors.length - 1, 1), COLOR_HEX[c]));
+    ctx.fillStyle = grad;
+  } else {
+    ctx.fillStyle = pSlot.dur > 0 ? (COLOR_HEX[pSlot.colors[0]] || CFG.KEY_COLOR) : '#888';
+  }
+  ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(dotX, dotY, dotR, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
 
   ctx.restore();
 }
@@ -1671,8 +1736,8 @@ function renderCircularUI(t) {
   const ps = playerScreenPos();
   const cx = ps.x, cy = ps.y;
   const shakeX = uiShake > 0 ? Math.sin(uiShake * 1.8) * (uiShake / 10) * 5 : 0;
-  const _akc   = activeKeyColor();
-  const keyCol = keyInventory[_akc] > 0 ? (COLOR_HEX[_akc] || CFG.KEY_COLOR) : '#888888';
+  const _slot  = activeSlot();
+  const keyCol = _slot.dur > 0 ? (COLOR_HEX[_slot.colors[0]] || CFG.KEY_COLOR) : '#888888';
 
   ctx.save();
   ctx.translate(shakeX, 0);
@@ -1691,8 +1756,9 @@ function renderCircularUI(t) {
   if (connectedEnemy) {
     const q    = connectedEnemy.angleQueue;
     const uiMods  = getMods();
-    const hasKey  = keyInventory[activeKeyColor()] > 0;
-    const dmg     = (hasKey && activeKeyColor() === connectedEnemy.color) ? 2 : 1;
+    const hasKey  = _slot.dur > 0;
+    const eCols   = connectedEnemy.colors || [connectedEnemy.color];
+    const dmg     = (hasKey && _slot.colors.some(c => eCols.includes(c))) ? 2 : 1;
     const hitsLeft = Math.ceil(connectedEnemy.hp / dmg);
     const maxShow  = Math.max(1, 3 - Math.round(uiMods.predictArrowSub));
     const show    = Math.min(hitsLeft, maxShow);
@@ -1772,10 +1838,12 @@ function keyPanelSlots() {
   const w = W(), h = H();
   const slotR   = 28;
   const spacing = 68;
-  const totalW  = (COLORS.length - 1) * spacing;
+  const n       = keySlots.length;
+  const totalW  = Math.max(0, n - 1) * spacing;
   const panelY  = h - 62;
-  return COLORS.map((c, i) => ({
-    color: c,
+  return keySlots.map((slot, i) => ({
+    slot,
+    idx: i,
     cx: w / 2 - totalW / 2 + i * spacing,
     cy: panelY,
     r:  slotR,
@@ -1785,42 +1853,59 @@ function keyPanelSlots() {
 function renderKeyPanel(t) {
   const w = W(), h = H();
   const slots  = keyPanelSlots();
+  if (!slots.length) return;
   const panelY = h - 62;
+  const DUR_MAX = 24;
 
   // Background pill
   ctx.save();
   ctx.globalAlpha = 0.72;
   ctx.fillStyle = '#1e1e1e';
-  const pw = slots[slots.length-1].cx - slots[0].cx + 80;
+  const pw = slots[slots.length - 1].cx - slots[0].cx + 80;
   roundRect(slots[0].cx - 40, panelY - 38, pw, 88, 18);
   ctx.restore();
 
   for (const s of slots) {
-    const col     = COLOR_HEX[s.color];
-    const dur     = keyInventory[s.color] || 0;
-    const active  = selectedKeyColor === s.color;
+    const slot    = s.slot;
+    const dur     = slot.dur;
+    const active  = s.idx === selectedSlotIdx;
     const hasKey  = dur > 0;
-    // When active but empty, show grey to indicate colorless-key fallback
-    const drawCol = (active && !hasKey) ? '#888888' : col;
+    const cols    = slot.colors;
+    const primCol = COLOR_HEX[cols[0]];
+    const drawCol = (active && !hasKey) ? '#888888' : primCol;
     const pulse   = active ? 0.85 + 0.15 * Math.sin(t * 4) : 1;
-    const DUR_MAX = 24;
+    const isFused = cols.length > 1;
 
     ctx.save();
 
-    // Durability arc track
+    // Durability arc track (dim full ring)
     ctx.strokeStyle = drawCol;
     ctx.lineWidth   = 3;
     ctx.globalAlpha = 0.15;
     ctx.beginPath(); ctx.arc(s.cx, s.cy, s.r + 4, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2); ctx.stroke();
 
-    // Filled arc for remaining durability
+    // Filled durability arc — for fused slots draw each color's segment
     if (dur > 0) {
-      const ratio = Math.min(dur / DUR_MAX, 1);
+      const ratio  = Math.min(dur / DUR_MAX, 1);
+      const arcEnd = -Math.PI / 2 + Math.PI * 2 * ratio;
       ctx.globalAlpha = active ? 0.85 * pulse : 0.5;
-      ctx.strokeStyle = drawCol;
-      ctx.beginPath();
-      ctx.arc(s.cx, s.cy, s.r + 4, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * ratio);
-      ctx.stroke();
+      ctx.lineWidth   = 3;
+      if (isFused) {
+        const segSize = (arcEnd - (-Math.PI / 2)) / cols.length;
+        for (let ci = 0; ci < cols.length; ci++) {
+          ctx.strokeStyle = COLOR_HEX[cols[ci]];
+          ctx.beginPath();
+          ctx.arc(s.cx, s.cy, s.r + 4,
+            -Math.PI / 2 + ci * segSize,
+            -Math.PI / 2 + (ci + 1) * segSize);
+          ctx.stroke();
+        }
+      } else {
+        ctx.strokeStyle = drawCol;
+        ctx.beginPath();
+        ctx.arc(s.cx, s.cy, s.r + 4, -Math.PI / 2, arcEnd);
+        ctx.stroke();
+      }
     }
 
     // Active selection ring
@@ -1831,30 +1916,49 @@ function renderKeyPanel(t) {
       ctx.beginPath(); ctx.arc(s.cx, s.cy, s.r + 9, 0, Math.PI * 2); ctx.stroke();
     }
 
-    // Slot background
+    // Slot background — gradient fill for fused
     ctx.globalAlpha = hasKey ? 0.2 : (active ? 0.12 : 0.07);
-    ctx.fillStyle   = drawCol;
+    if (isFused) {
+      const bg = ctx.createLinearGradient(s.cx - s.r, s.cy, s.cx + s.r, s.cy);
+      cols.forEach((c, ci) => bg.addColorStop(ci / Math.max(cols.length - 1, 1), COLOR_HEX[c]));
+      ctx.fillStyle = bg;
+    } else {
+      ctx.fillStyle = drawCol;
+    }
     ctx.beginPath(); ctx.arc(s.cx, s.cy, s.r, 0, Math.PI * 2); ctx.fill();
 
-    // Diamond icon
+    // Icon
     if (hasKey) {
-      const sz = 9;
-      ctx.globalAlpha = active ? 0.95 * pulse : 0.65;
-      ctx.fillStyle   = col;
-      ctx.beginPath();
-      ctx.moveTo(s.cx,               s.cy - sz);
-      ctx.lineTo(s.cx + sz * 0.65,   s.cy);
-      ctx.lineTo(s.cx,               s.cy + sz);
-      ctx.lineTo(s.cx - sz * 0.65,   s.cy);
-      ctx.closePath();
-      ctx.fill();
-      ctx.globalAlpha = active ? 0.5 * pulse : 0.25;
-      ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
-      ctx.stroke();
+      if (isFused) {
+        // Colored dots in a ring for each component color
+        const dotR = 5, orbitR = cols.length <= 2 ? 9 : 11;
+        cols.forEach((c, ci) => {
+          const a = (ci / cols.length) * Math.PI * 2 - Math.PI / 2;
+          ctx.globalAlpha = active ? 0.95 * pulse : 0.75;
+          ctx.fillStyle = COLOR_HEX[c];
+          ctx.beginPath(); ctx.arc(s.cx + Math.cos(a) * orbitR, s.cy + Math.sin(a) * orbitR, dotR, 0, Math.PI * 2); ctx.fill();
+          ctx.globalAlpha = active ? 0.4 * pulse : 0.2;
+          ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
+          ctx.stroke();
+        });
+      } else {
+        // Single diamond icon
+        const sz = 9;
+        ctx.globalAlpha = active ? 0.95 * pulse : 0.65;
+        ctx.fillStyle   = primCol;
+        ctx.beginPath();
+        ctx.moveTo(s.cx,             s.cy - sz);
+        ctx.lineTo(s.cx + sz * 0.65, s.cy);
+        ctx.lineTo(s.cx,             s.cy + sz);
+        ctx.lineTo(s.cx - sz * 0.65, s.cy);
+        ctx.closePath(); ctx.fill();
+        ctx.globalAlpha = active ? 0.5 * pulse : 0.25;
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
+        ctx.stroke();
+      }
     } else {
-      // Empty slot indicator
       ctx.globalAlpha = 0.22;
-      ctx.strokeStyle = col; ctx.lineWidth = 1.2;
+      ctx.strokeStyle = drawCol; ctx.lineWidth = 1.2;
       ctx.beginPath(); ctx.arc(s.cx, s.cy, 7, 0, Math.PI * 2); ctx.stroke();
     }
 
@@ -1911,18 +2015,10 @@ function renderHUD(w, h) {
 
   // Inscription count (top-left corner)
   if (activeInscriptions.length > 0) {
-    const fusionCnt = activeInscriptions.filter(i => i.type === 'fusion').length;
-    const normalCnt = activeInscriptions.length - fusionCnt;
+    ctx.fillStyle = '#b044d8';
     ctx.font = 'bold 11px -apple-system, monospace';
     ctx.textAlign = 'left';
-    if (normalCnt > 0) {
-      ctx.fillStyle = '#b044d8';
-      ctx.fillText(`◆ 刻印 ×${normalCnt}`, 16, 48);
-    }
-    if (fusionCnt > 0) {
-      ctx.fillStyle = '#ffcc44';
-      ctx.fillText(`✦ 融合 ×${fusionCnt}`, 16, normalCnt > 0 ? 62 : 48);
-    }
+    ctx.fillText(`◆ 刻印 ×${activeInscriptions.length}`, 16, 48);
   }
 
   // Pause button
@@ -2333,6 +2429,58 @@ function renderFusionDraft(w, h, t) {
     ctx.font = '11px -apple-system, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText(`刻印 ${activeInscriptions.length}個 取得済み`, w / 2, h - 40);
+  }
+}
+
+function renderFusionSelect(w, h, t) {
+  ctx.fillStyle = 'rgba(8,7,18,0.68)';
+  ctx.fillRect(0, 0, w, h);
+
+  const cx = w / 2;
+  const nameMap = { red:'赤', blue:'青', yellow:'黄', green:'緑', purple:'紫' };
+
+  // Instruction panel
+  ctx.fillStyle   = 'rgba(255,200,60,0.12)';
+  ctx.strokeStyle = 'rgba(255,200,60,0.45)';
+  ctx.lineWidth   = 1.5;
+  ctx.save();
+  ctx.beginPath(); ctx.roundRect(cx - 190, 48, 380, 86, 12); ctx.fill(); ctx.stroke();
+  ctx.restore();
+
+  ctx.fillStyle = '#ffcc44';
+  ctx.font = 'bold 18px -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('色融合刻印', cx, 78);
+
+  ctx.font = '13px -apple-system, sans-serif';
+  if (fusionSlotA === -1) {
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.fillText('融合させたい1つ目の鍵をタップ', cx, 103);
+  } else {
+    const sA = keySlots[fusionSlotA];
+    const label = sA ? sA.colors.map(c => nameMap[c] || c).join('+') : '?';
+    ctx.fillStyle = '#ffcc44';
+    ctx.fillText(`「${label}」選択中  →  融合する2つ目をタップ`, cx, 103);
+  }
+
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  ctx.font = '11px -apple-system, sans-serif';
+  ctx.fillText('パネル外タップでキャンセル', cx, 124);
+
+  // Fusion preview: if slotA chosen, show what result will look like
+  if (fusionSlotA !== -1) {
+    const fslots = keyPanelSlots();
+    const sA = fslots[fusionSlotA];
+    if (sA) {
+      const pulse = 0.75 + 0.25 * Math.sin(t * 5);
+      ctx.strokeStyle = '#ffcc44';
+      ctx.lineWidth   = 3;
+      ctx.globalAlpha = pulse;
+      ctx.beginPath(); ctx.arc(sA.cx, sA.cy, sA.r + 14, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 0.5 * pulse;
+      ctx.beginPath(); ctx.arc(sA.cx, sA.cy, sA.r + 20, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
   }
 }
 
