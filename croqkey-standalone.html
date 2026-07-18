@@ -1819,30 +1819,33 @@ function renderEnemy(e, t) {
     ctx.globalAlpha = 1;
   }
 
-  // Body — fusion: gradient fill + colored dashed rings per component
+  // Body — fusion: gradient fill + arc-segment outer ring (mirrors fused key ring)
   if (e.fusion && allColors.length > 1) {
+    // Gradient fill — visible blend of all component colors
     const grad = ctx.createLinearGradient(-e.r, 0, e.r, 0);
     allColors.forEach((c, ci) => {
       const stop = ci / Math.max(allColors.length - 1, 1);
-      grad.addColorStop(stop, COLOR_HEX[c] + (focused ? '55' : '2a'));
+      grad.addColorStop(stop, COLOR_HEX[c] + (focused ? '70' : '45'));
     });
     ctx.fillStyle = grad;
     ctx.globalAlpha = 1;
     ctx.beginPath(); ctx.arc(0, 0, e.r, 0, Math.PI * 2); ctx.fill();
-    // A dashed ring per color component, inset from each other
+
+    // Outer ring: one arc segment per color, slowly rotating dashes
+    const segAngle = (Math.PI * 2) / allColors.length;
+    const dashOff  = -(t * 0.38 % 1) * 18;
     allColors.forEach((c, ci) => {
-      ctx.globalAlpha = 0.50;
+      ctx.globalAlpha = focused ? 0.92 : 0.78;
       ctx.strokeStyle = COLOR_HEX[c];
-      ctx.lineWidth   = 2;
-      ctx.setLineDash([5, 4]);
-      ctx.lineDashOffset = -ci * 7;
-      ctx.beginPath(); ctx.arc(0, 0, e.r - 2 - ci * 4, 0, Math.PI * 2); ctx.stroke();
-      ctx.setLineDash([]);
+      ctx.lineWidth   = focused ? 3.0 : 2.2;
+      ctx.setLineDash([9, 5]);
+      ctx.lineDashOffset = dashOff - ci * 14;
+      ctx.beginPath();
+      ctx.arc(0, 0, e.r, ci * segAngle, (ci + 1) * segAngle);
+      ctx.stroke();
     });
+    ctx.setLineDash([]); ctx.lineDashOffset = 0;
     ctx.globalAlpha = 1;
-    ctx.strokeStyle = focused ? '#111' : '#444';
-    ctx.lineWidth   = focused ? 2.5 : 1.8;
-    ctx.beginPath(); ctx.arc(0, 0, e.r, 0, Math.PI * 2); ctx.stroke();
   } else {
     ctx.fillStyle   = focused ? `${ecol}28` : `${ecol}12`;
     ctx.strokeStyle = focused ? '#222' : '#777';
