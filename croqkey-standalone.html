@@ -86,7 +86,18 @@ const H = () => canvas.height;
 // ══════════════════════════════════════════════
 const cam = { x: 0, y: 0 };
 
+// Smooth follow: lerp toward (player + velocity lead)
+const CAMERA_LERP = 0.10;  // 0=frozen, 1=instant
+const CAMERA_LEAD = 13;    // pixels of look-ahead per px/frame of velocity
+
 function updateCamera() {
+  const tx = player.x + player.vx * CAMERA_LEAD - W() * 0.5;
+  const ty = player.y + player.vy * CAMERA_LEAD - H() * 0.5;
+  cam.x += (tx - cam.x) * CAMERA_LERP;
+  cam.y += (ty - cam.y) * CAMERA_LERP;
+}
+
+function snapCamera() {
   cam.x = player.x - W() * 0.5;
   cam.y = player.y - H() * 0.5;
 }
@@ -128,7 +139,7 @@ function initPlayer() {
   player.vx = player.vy = 0;
   player.hp = CFG.PLAYER_HP_MAX;
   player.invincible = player.hitFlash = 0;
-  updateCamera();
+  snapCamera();
 }
 
 // ══════════════════════════════════════════════
