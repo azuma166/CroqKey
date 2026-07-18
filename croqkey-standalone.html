@@ -89,74 +89,163 @@ const FUSION_COLOR_EFFECT = {
 // val is the numeric effect size for display; actual effect is in getMods()
 const BUFF_CATALOG = {
   light: [
-    { id:'B-D1', label: '全ダメ +15%',        key: 'globalDmgMult',    val: 1.15 },
-    { id:'B-C1', label: 'コンボ係数 +0.03',   key: 'comboCoeff',       val: 0.03 },
-    { id:'B-C2', label: 'ミス許容 1回',        key: 'comboForgives',    val: 1 },
-    { id:'B-C4', label: '許容角 +10°',         key: 'flickTolerance',   val: 10 * Math.PI / 180 },
-    { id:'B-S1', label: '最大HP +1',           key: 'maxHpBonus',       val: 1 },
-    { id:'B-M1', label: '鍵耐久取得 +4',       key: 'keyDropDurBonus',  val: 4 },
-    { id:'B-G1', label: '緑回復量 +1',         key: 'greenHealBonus',   val: 1 },
-    { id:'B-U1', label: 'スロー半径 +25%',     key: 'blueSlowRadMult',  val: 0.25 },
-    { id:'B-P1', label: 'ボム半径 +25%',       key: 'purpleBombRadMult',val: 0.25 },
-    { id:'B-S4', label: '無敵時間 +0.3s',      key: 'invincibleBonus',  val: 18 },
+    { id:'B-R1', label: '赤ダメ +15%',          key: 'redDmgMult',            val: 1.15 },
+    { id:'B-R2', label: '赤クリット +0.3',       key: 'redCritMult',           val: 0.3  },
+    { id:'B-U1', label: 'スロー半径 +25%',       key: 'blueSlowRadMult',       val: 0.25 },
+    { id:'B-U2', label: 'スロー減速 +10%',       key: 'blueSlowFactor',        val: -0.10 },
+    { id:'B-U3', label: 'スロー持続 +1s',        key: 'blueSlowDuration',      val: 60   },
+    { id:'B-Y1', label: '黄チェイン +1段',       key: 'yellowChainExtra',      val: 1    },
+    { id:'B-Y2', label: '黄チェインダメ +1',     key: 'yellowChainDmgBonus',   val: 1    },
+    { id:'B-G1', label: '緑回復量 +1',           key: 'greenHealBonus',        val: 1    },
+    { id:'B-P1', label: '紫ボム半径 +25%',       key: 'purpleBombRadMult',     val: 0.25 },
+    { id:'B-P2', label: '紫ボムダメ +1',         key: 'purpleBombDmg',         val: 1    },
+    { id:'B-D1', label: '全ダメ +15%',           key: 'globalDmgMult',         val: 1.15 },
+    { id:'B-D2', label: 'クリット倍率 +0.3',     key: 'critMult',              val: 0.3  },
+    { id:'B-D3', label: '色不一致クリット 10%',  key: 'mismatchCritChance',    val: 0.10 },
+    { id:'B-D4', label: '撃破余波ダメ 1',        key: 'splashDmgOnKill',       val: 1    },
+    { id:'B-C1', label: 'コンボ係数 +0.03',      key: 'comboCoeff',            val: 0.03 },
+    { id:'B-C2', label: 'ミス許容 1回',          key: 'comboForgives',         val: 1    },
+    { id:'B-C4', label: '許容角 +10°',           key: 'flickTolerance',        val: 10 * Math.PI / 180 },
+    { id:'B-S1', label: '最大HP +1',             key: 'maxHpBonus',            val: 1    },
+    { id:'B-S2', label: '撃破HP+ 5%',            key: 'healOnKillChance',      val: 0.05 },
+    { id:'B-S3', label: 'コンボ17で無敵',        key: 'comboInvincible',       val: 17   },
+    { id:'B-S4', label: '無敵時間 +0.3s',        key: 'invincibleBonus',       val: 18   },
+    { id:'B-M1', label: '耐久取得 +4',           key: 'keyDropDurBonus',       val: 4    },
+    { id:'B-M2', label: '撃破耐久 +1',           key: 'bonusDurOnKill',        val: 1    },
+    { id:'B-M3', label: '耐久上限 +20%',         key: 'durPoolMult',           val: 0.20 },
+    { id:'B-M4', label: '刻印頻度 +20%',         key: 'orbFreqMult',           val: 0.20 },
   ],
   medium: [
-    { id:'B-D1', label: '全ダメ +30%',        key: 'globalDmgMult',    val: 1.30 },
-    { id:'B-D2', label: 'クリット倍率 +0.7',  key: 'critMult',         val: 0.7 },
-    { id:'B-C1', label: 'コンボ係数 +0.06',   key: 'comboCoeff',       val: 0.06 },
-    { id:'B-S1', label: '最大HP +2',           key: 'maxHpBonus',       val: 2 },
-    { id:'B-S2', label: '撃破でHP+1(12%)',     key: 'healOnKillChance', val: 0.12 },
-    { id:'B-S3', label: 'コンボ30で1秒無敵',  key: 'comboInvincible',  val: 30 },
-    { id:'B-M2', label: '撃破で耐久 +2',       key: 'bonusDurOnKill',   val: 2 },
-    { id:'B-M3', label: '耐久上限 +40%',       key: 'durPoolMult',      val: 0.40 },
-    { id:'B-Y1', label: '黄チェイン +2段',     key: 'yellowChainExtra', val: 2 },
-    { id:'B-U2', label: 'スロー強化 -20%',     key: 'blueSlowFactor',   val: -0.20 },
-    { id:'B-X3', label: '被弾時 自動スロー',   key: 'autoSlowOnHit',    val: 1 },
+    { id:'B-R1', label: '赤ダメ +30%',           key: 'redDmgMult',            val: 1.30 },
+    { id:'B-R2', label: '赤クリット +0.6',        key: 'redCritMult',           val: 0.6  },
+    { id:'B-U1', label: 'スロー半径 +50%',        key: 'blueSlowRadMult',       val: 0.50 },
+    { id:'B-U2', label: 'スロー減速 +20%',        key: 'blueSlowFactor',        val: -0.20 },
+    { id:'B-U3', label: 'スロー持続 +2s',         key: 'blueSlowDuration',      val: 120  },
+    { id:'B-Y1', label: '黄チェイン +2段',        key: 'yellowChainExtra',      val: 2    },
+    { id:'B-Y2', label: '黄チェインダメ +2',      key: 'yellowChainDmgBonus',   val: 2    },
+    { id:'B-G1', label: '緑回復量 +2',            key: 'greenHealBonus',        val: 2    },
+    { id:'B-P1', label: '紫ボム半径 +45%',        key: 'purpleBombRadMult',     val: 0.45 },
+    { id:'B-P2', label: '紫ボムダメ +2',          key: 'purpleBombDmg',         val: 2    },
+    { id:'B-D1', label: '全ダメ +30%',            key: 'globalDmgMult',         val: 1.30 },
+    { id:'B-D2', label: 'クリット倍率 +0.7',      key: 'critMult',              val: 0.7  },
+    { id:'B-D3', label: '色不一致クリット 20%',   key: 'mismatchCritChance',    val: 0.20 },
+    { id:'B-D4', label: '撃破余波ダメ 2',         key: 'splashDmgOnKill',       val: 2    },
+    { id:'B-C1', label: 'コンボ係数 +0.06',       key: 'comboCoeff',            val: 0.06 },
+    { id:'B-C2', label: 'ミス許容 1回',           key: 'comboForgives',         val: 1    },
+    { id:'B-C4', label: '許容角 +15°',            key: 'flickTolerance',        val: 15 * Math.PI / 180 },
+    { id:'B-S1', label: '最大HP +2',              key: 'maxHpBonus',            val: 2    },
+    { id:'B-S2', label: '撃破HP+ 12%',            key: 'healOnKillChance',      val: 0.12 },
+    { id:'B-S3', label: 'コンボ11で無敵',         key: 'comboInvincible',       val: 11   },
+    { id:'B-S4', label: '無敵時間 +0.6s',         key: 'invincibleBonus',       val: 36   },
+    { id:'B-M1', label: '耐久取得 +8',            key: 'keyDropDurBonus',       val: 8    },
+    { id:'B-M2', label: '撃破耐久 +2',            key: 'bonusDurOnKill',        val: 2    },
+    { id:'B-M3', label: '耐久上限 +40%',          key: 'durPoolMult',           val: 0.40 },
+    { id:'B-M4', label: '刻印頻度 +40%',          key: 'orbFreqMult',           val: 0.40 },
+    { id:'B-X3', label: '被弾時 自動スロー',      key: 'autoSlowOnHit',         val: 1    },
   ],
   heavy: [
-    { id:'B-D1', label: '全ダメ +50%',        key: 'globalDmgMult',    val: 1.50 },
-    { id:'B-C1', label: 'コンボ係数 +0.10',   key: 'comboCoeff',       val: 0.10 },
-    { id:'B-S1', label: '最大HP +4',           key: 'maxHpBonus',       val: 4 },
-    { id:'B-S3', label: 'コンボ20で1秒無敵',  key: 'comboInvincible',  val: 20 },
-    { id:'B-X1', label: '赤→全敵クリット',    key: 'redCritAll',       val: 1 },
-    { id:'B-X2', label: '枯渇でも効果発動',   key: 'depletedEffects',  val: 1 },
-    { id:'B-P2', label: 'ボムダメ +3',         key: 'purpleBombDmg',    val: 3 },
-    { id:'B-X6', label: '全効果範囲 ×2',      key: 'effectRangeMult',  val: 2 },
+    { id:'B-R1', label: '赤ダメ +50%',            key: 'redDmgMult',            val: 1.50 },
+    { id:'B-R2', label: '赤クリット +1.0',        key: 'redCritMult',           val: 1.0  },
+    { id:'B-U1', label: 'スロー半径 +90%',        key: 'blueSlowRadMult',       val: 0.90 },
+    { id:'B-U2', label: 'スロー減速 +35%',        key: 'blueSlowFactor',        val: -0.35 },
+    { id:'B-U3', label: 'スロー持続 +4s',         key: 'blueSlowDuration',      val: 240  },
+    { id:'B-Y1', label: '黄チェイン +3段',        key: 'yellowChainExtra',      val: 3    },
+    { id:'B-Y2', label: '黄チェインダメ +3',      key: 'yellowChainDmgBonus',   val: 3    },
+    { id:'B-G1', label: '緑回復量 +3',            key: 'greenHealBonus',        val: 3    },
+    { id:'B-P1', label: '紫ボム半径 +80%',        key: 'purpleBombRadMult',     val: 0.80 },
+    { id:'B-P2', label: '紫ボムダメ +3',          key: 'purpleBombDmg',         val: 3    },
+    { id:'B-D1', label: '全ダメ +50%',            key: 'globalDmgMult',         val: 1.50 },
+    { id:'B-D2', label: 'クリット倍率 +1.2',      key: 'critMult',              val: 1.2  },
+    { id:'B-D3', label: '色不一致クリット 35%',   key: 'mismatchCritChance',    val: 0.35 },
+    { id:'B-D4', label: '撃破余波ダメ 3',         key: 'splashDmgOnKill',       val: 3    },
+    { id:'B-C1', label: 'コンボ係数 +0.10',       key: 'comboCoeff',            val: 0.10 },
+    { id:'B-C2', label: 'ミス許容 2回',           key: 'comboForgives',         val: 2    },
+    { id:'B-C4', label: '許容角 +25°',            key: 'flickTolerance',        val: 25 * Math.PI / 180 },
+    { id:'B-S1', label: '最大HP +4',              key: 'maxHpBonus',            val: 4    },
+    { id:'B-S2', label: '撃破HP+ 25%',            key: 'healOnKillChance',      val: 0.25 },
+    { id:'B-S3', label: 'コンボ5で無敵',          key: 'comboInvincible',       val: 5    },
+    { id:'B-S4', label: '無敵時間 +1.2s',         key: 'invincibleBonus',       val: 72   },
+    { id:'B-M1', label: '耐久取得 +15',           key: 'keyDropDurBonus',       val: 15   },
+    { id:'B-M2', label: '撃破耐久 +4',            key: 'bonusDurOnKill',        val: 4    },
+    { id:'B-M3', label: '耐久上限 +70%',          key: 'durPoolMult',           val: 0.70 },
+    { id:'B-M4', label: '刻印頻度 +70%',          key: 'orbFreqMult',           val: 0.70 },
+    { id:'B-X1', label: '赤→全敵クリット',       key: 'redCritAll',            val: 1    },
+    { id:'B-X2', label: '枯渇でも効果発動',       key: 'depletedEffects',       val: 1    },
+    { id:'B-X4', label: '紫撃破でボム連鎖',       key: 'bombChainOnKill',       val: 1    },
+    { id:'B-X5', label: '無傷ボーナス',           key: 'untouchedBonus',        val: 1    },
+    { id:'B-X6', label: '全効果範囲 ×2',          key: 'effectRangeMult',       val: 2    },
+    { id:'B-X7', label: 'チェインが効果伝播',     key: 'chainPropagatesEffects',val: 1    },
   ],
 };
 
 const DEBUFF_CATALOG = {
   light: [
-    { id:'D-M1', label: '移動速度 -10%',      key: 'speedMult',        val: -0.10 },
-    { id:'D-V1', label: '視野縮小 -10%',       key: 'cameraZoom',       val: 0.10 },
-    { id:'D-V2', label: '予測矢印 -1本',       key: 'predictArrowSub',  val: 1 },
-    { id:'D-E3', label: '敵速度 +10%',         key: 'enemySpeedMult',   val: 0.10 },
-    { id:'D-R4', label: '鍵ドロップ率 -20%',   key: 'keyDropChanceMult',val: -0.20 },
-    { id:'D-S2', label: '無敵時間 -0.3s',      key: 'invincibleMalus',  val: -18 },
-    { id:'D-O2', label: '許容角 -10°',         key: 'flickTolerance',   val: -10 * Math.PI / 180 },
-    { id:'D-E1', label: '敵数 +2',             key: 'enemyCountBonus',  val: 2 },
+    { id:'D-M1', label: '移動速度 -10%',         key: 'speedMult',             val: -0.10 },
+    { id:'D-M2', label: '慣性増加 +15%',         key: 'inertiaBonus',          val: 0.15  },
+    { id:'D-M4', label: 'フリック初速 -15%',     key: 'flickSpeedCap',         val: -0.15 },
+    { id:'D-V1', label: '視野縮小 -10%',         key: 'cameraZoom',            val: 0.10  },
+    { id:'D-V2', label: '予測矢印 -1本',         key: 'predictArrowSub',       val: 1     },
+    { id:'D-V3', label: '矢印表示 -20%',         key: 'ghostTimerMult',        val: -0.20 },
+    { id:'D-O2', label: '許容角 -10°',           key: 'flickTolerance',        val: -10 * Math.PI / 180 },
+    { id:'D-O3', label: '接続中被ダメ +30%',     key: 'connectedDmgMult',      val: 0.30  },
+    { id:'D-E1', label: '敵数 +2',               key: 'enemyCountBonus',       val: 2     },
+    { id:'D-E3', label: '敵速度 +10%',           key: 'enemySpeedMult',        val: 0.10  },
+    { id:'D-R1', label: '耐久取得量 -20%',       key: 'keyDropDurMult',        val: -0.20 },
+    { id:'D-R4', label: '鍵ドロップ率 -20%',     key: 'keyDropChanceMult',     val: -0.20 },
+    { id:'D-R5', label: '刻印頻度 -20%',         key: 'orbFreqMalus',          val: -0.20 },
+    { id:'D-S1', label: '最大HP -1',             key: 'maxHpMalus',            val: 1     },
+    { id:'D-S2', label: '無敵時間 -0.3s',        key: 'invincibleMalus',       val: -18   },
   ],
   medium: [
-    { id:'D-M1', label: '移動速度 -20%',      key: 'speedMult',        val: -0.20 },
-    { id:'D-V1', label: '視野縮小 -20%',       key: 'cameraZoom',       val: 0.20 },
-    { id:'D-E3', label: '敵速度 +20%',         key: 'enemySpeedMult',   val: 0.20 },
-    { id:'D-E1', label: '敵数 +4',             key: 'enemyCountBonus',  val: 4 },
-    { id:'D-E2', label: 'スポーン間隔 -30%',   key: 'spawnIntervalMult',val: -0.30 },
-    { id:'D-E5', label: '敵追尾加速 +30%',     key: 'enemyAccelMult',   val: 0.30 },
-    { id:'D-R2', label: '耐久上限 -35%',       key: 'durPoolMult',      val: -0.35 },
-    { id:'D-S4', label: '緑回復量 -2',         key: 'greenHealMalus',   val: -2 },
-    { id:'D-M3', label: 'タップ停止無効',      key: 'noTapStop',        val: 1 },
-    { id:'D-O2', label: '許容角 -15°',         key: 'flickTolerance',   val: -15 * Math.PI / 180 },
+    { id:'D-M1', label: '移動速度 -20%',         key: 'speedMult',             val: -0.20 },
+    { id:'D-M2', label: '慣性増加 +30%',         key: 'inertiaBonus',          val: 0.30  },
+    { id:'D-M3', label: 'タップ停止無効',        key: 'noTapStop',             val: 1     },
+    { id:'D-M4', label: 'フリック初速 -30%',     key: 'flickSpeedCap',         val: -0.30 },
+    { id:'D-V1', label: '視野縮小 -20%',         key: 'cameraZoom',            val: 0.20  },
+    { id:'D-V2', label: '予測矢印 -2本',         key: 'predictArrowSub',       val: 2     },
+    { id:'D-V3', label: '矢印表示 -40%',         key: 'ghostTimerMult',        val: -0.40 },
+    { id:'D-V4', label: '敵色 近距離のみ',       key: 'enemyColorFarHide',     val: 1     },
+    { id:'D-O2', label: '許容角 -15°',           key: 'flickTolerance',        val: -15 * Math.PI / 180 },
+    { id:'D-O3', label: '接続中被ダメ +50%',     key: 'connectedDmgMult',      val: 0.50  },
+    { id:'D-E1', label: '敵数 +4',               key: 'enemyCountBonus',       val: 4     },
+    { id:'D-E2', label: 'スポーン -30%',         key: 'spawnIntervalMult',     val: -0.30 },
+    { id:'D-E3', label: '敵速度 +20%',           key: 'enemySpeedMult',        val: 0.20  },
+    { id:'D-E5', label: '敵追尾加速 +30%',       key: 'enemyAccelMult',        val: 0.30  },
+    { id:'D-R1', label: '耐久取得量 -40%',       key: 'keyDropDurMult',        val: -0.40 },
+    { id:'D-R2', label: '耐久上限 -35%',         key: 'durPoolMult',           val: -0.35 },
+    { id:'D-R4', label: '鍵ドロップ率 -40%',     key: 'keyDropChanceMult',     val: -0.40 },
+    { id:'D-R5', label: '刻印頻度 -40%',         key: 'orbFreqMalus',          val: -0.40 },
+    { id:'D-S1', label: '最大HP -2',             key: 'maxHpMalus',            val: 2     },
+    { id:'D-S2', label: '無敵時間 -0.6s',        key: 'invincibleMalus',       val: -36   },
+    { id:'D-S4', label: '緑回復量 -2',           key: 'greenHealMalus',        val: -2    },
+    { id:'D-S5', label: '被弾後硬直 0.4s',       key: 'stunOnHit',             val: 24    },
   ],
   heavy: [
-    { id:'D-O1', label: '緊急離脱不可',        key: 'cannotEscape',     val: 1 },
-    { id:'D-M1', label: '移動速度 -35%',       key: 'speedMult',        val: -0.35 },
-    { id:'D-V1', label: '視野縮小 -35%',       key: 'cameraZoom',       val: 0.35 },
-    { id:'D-E4', label: '敵HP +3',             key: 'enemyHpBonus',     val: 3 },
-    { id:'D-E5', label: '敵追尾加速 +50%',     key: 'enemyAccelMult',   val: 0.50 },
-    { id:'D-S3', label: '被ダメ +1',           key: 'incomingDmgBonus', val: 1 },
-    { id:'D-S4', label: '緑回復無効',          key: 'greenHealMalus',   val: -999 },
-    { id:'D-E6', label: '融合個体 早期出現',   key: 'fusionEarlySpawn', val: 1 },
+    { id:'D-M1', label: '移動速度 -35%',         key: 'speedMult',             val: -0.35 },
+    { id:'D-M2', label: '慣性増加 +50%',         key: 'inertiaBonus',          val: 0.50  },
+    { id:'D-M4', label: 'フリック初速 -50%',     key: 'flickSpeedCap',         val: -0.50 },
+    { id:'D-V1', label: '視野縮小 -35%',         key: 'cameraZoom',            val: 0.35  },
+    { id:'D-V2', label: '予測矢印 -3本(全消)',    key: 'predictArrowSub',       val: 3     },
+    { id:'D-V3', label: '矢印表示 -70%',         key: 'ghostTimerMult',        val: -0.70 },
+    { id:'D-O1', label: '緊急離脱不可',          key: 'cannotEscape',          val: 1     },
+    { id:'D-O2', label: '許容角 -25°',           key: 'flickTolerance',        val: -25 * Math.PI / 180 },
+    { id:'D-O3', label: '接続中被ダメ +80%',     key: 'connectedDmgMult',      val: 0.80  },
+    { id:'D-E1', label: '敵数 +7',               key: 'enemyCountBonus',       val: 7     },
+    { id:'D-E2', label: 'スポーン -50%',         key: 'spawnIntervalMult',     val: -0.50 },
+    { id:'D-E3', label: '敵速度 +35%',           key: 'enemySpeedMult',        val: 0.35  },
+    { id:'D-E4', label: '敵HP +3',               key: 'enemyHpBonus',          val: 3     },
+    { id:'D-E5', label: '敵追尾加速 +50%',       key: 'enemyAccelMult',        val: 0.50  },
+    { id:'D-E6', label: '融合個体 早期出現',     key: 'fusionEarlySpawn',      val: 1     },
+    { id:'D-R1', label: '耐久取得量 -65%',       key: 'keyDropDurMult',        val: -0.65 },
+    { id:'D-R2', label: '耐久上限 -55%',         key: 'durPoolMult',           val: -0.55 },
+    { id:'D-R3', label: 'コンボ減衰加速',        key: 'comboDrainAccel',       val: 1     },
+    { id:'D-R4', label: '鍵ドロップ率 -65%',     key: 'keyDropChanceMult',     val: -0.65 },
+    { id:'D-R5', label: '刻印頻度 -65%',         key: 'orbFreqMalus',          val: -0.65 },
+    { id:'D-S1', label: '最大HP -3',             key: 'maxHpMalus',            val: 3     },
+    { id:'D-S2', label: '無敵時間 -1.0s',        key: 'invincibleMalus',       val: -60   },
+    { id:'D-S3', label: '被ダメ +1',             key: 'incomingDmgBonus',      val: 1     },
+    { id:'D-S4', label: '緑回復無効',            key: 'greenHealMalus',        val: -999  },
+    { id:'D-S5', label: '被弾後硬直 0.7s',       key: 'stunOnHit',             val: 42    },
   ],
 };
 
@@ -200,6 +289,26 @@ function getMods() {
     noTapStop:        0,
     incomingDmgBonus: 0,
     fusionEarlySpawn: 0,
+    redDmgMult:             1,
+    redCritMult:            0,
+    blueSlowDuration:       0,
+    yellowChainDmgBonus:    0,
+    mismatchCritChance:     0,
+    splashDmgOnKill:        0,
+    orbFreqMult:            0,
+    orbFreqMalus:           0,
+    bombChainOnKill:        0,
+    untouchedBonus:         0,
+    chainPropagatesEffects: 0,
+    inertiaBonus:           0,
+    flickSpeedCap:          0,
+    ghostTimerMult:         0,
+    enemyColorFarHide:      0,
+    connectedDmgMult:       0,
+    keyDropDurMult:         0,
+    maxHpMalus:             0,
+    stunOnHit:              0,
+    comboDrainAccel:        0,
   };
   for (const ins of activeInscriptions) {
     applyInscriptionMod(m, ins.buff);
@@ -208,6 +317,7 @@ function getMods() {
   // clamp some
   m.globalDmgMult = Math.max(0.1, m.globalDmgMult);
   m.effectRangeMult = Math.max(1, m.effectRangeMult);
+  m.redDmgMult = Math.max(0.1, m.redDmgMult);
   return m;
 }
 
@@ -253,6 +363,26 @@ function applyInscriptionMod(m, entry) {
     case 'noTapStop':        m.noTapStop        += v; break;
     case 'incomingDmgBonus': m.incomingDmgBonus += v; break;
     case 'fusionEarlySpawn': m.fusionEarlySpawn += v; break;
+    case 'redDmgMult':             m.redDmgMult             *= v; break;
+    case 'redCritMult':            m.redCritMult            += v; break;
+    case 'blueSlowDuration':       m.blueSlowDuration       += v; break;
+    case 'yellowChainDmgBonus':    m.yellowChainDmgBonus    += v; break;
+    case 'mismatchCritChance':     m.mismatchCritChance     += v; break;
+    case 'splashDmgOnKill':        m.splashDmgOnKill        += v; break;
+    case 'orbFreqMult':            m.orbFreqMult            += v; break;
+    case 'orbFreqMalus':           m.orbFreqMalus           += v; break;
+    case 'bombChainOnKill':        m.bombChainOnKill        += v; break;
+    case 'untouchedBonus':         m.untouchedBonus         += v; break;
+    case 'chainPropagatesEffects': m.chainPropagatesEffects += v; break;
+    case 'inertiaBonus':           m.inertiaBonus           += v; break;
+    case 'flickSpeedCap':          m.flickSpeedCap          += v; break;
+    case 'ghostTimerMult':         m.ghostTimerMult         += v; break;
+    case 'enemyColorFarHide':      m.enemyColorFarHide      += v; break;
+    case 'connectedDmgMult':       m.connectedDmgMult       += v; break;
+    case 'keyDropDurMult':         m.keyDropDurMult         += v; break;
+    case 'maxHpMalus':             m.maxHpMalus             += v; break;
+    case 'stunOnHit':              m.stunOnHit              += v; break;
+    case 'comboDrainAccel':        m.comboDrainAccel        += v; break;
   }
 }
 
@@ -446,6 +576,9 @@ let combo          = 0;
 let maxCombo       = 0;
 let killCount      = 0;
 let comboMissCount = 0; // counts forgiven misses this combo chain
+let untouchedStreak = 0; // B-X5: kills without taking damage
+let comboIdleFrames = 0; // D-R3: frames in IDLE without hitting
+let player_stunTimer = 0; // D-S5: input-freeze frames after hit (legacy; use player.stunTimer)
 const activeInscriptions = [];
 const inscriptionOrbs    = [];
 let draftChoices         = [];
@@ -481,6 +614,7 @@ function initPlayer() {
   player.vx = player.vy = 0;
   player.hp = CFG.PLAYER_HP_MAX;
   player.invincible = player.hitFlash = 0;
+  player.stunTimer = 0;
   snapCamera();
 }
 
@@ -648,7 +782,11 @@ function collectKey(color) {
   const mods = getMods();
   const cap  = durCap();
   const slot = keySlots.find(s => s.colors.includes(color));
-  if (slot) slot.dur = Math.min(cap, slot.dur + CFG.KEY_DROP_DUR + mods.keyDropDurBonus);
+  if (slot) {
+    const baseDur = CFG.KEY_DROP_DUR + mods.keyDropDurBonus;
+    const actualDur = Math.max(1, Math.round(baseDur * Math.max(0.1, 1 + mods.keyDropDurMult)));
+    slot.dur = Math.min(cap, slot.dur + actualDur);
+  }
 }
 
 // ══════════════════════════════════════════════
@@ -1056,7 +1194,8 @@ function pointerUp(sx, sy) {
     } else {
       // Flick → move
       const moveMult = 1 + getMods().speedMult;
-      const spd = Math.min(dist / dt * 12 * Math.max(0.1, moveMult), CFG.MAX_SPEED);
+      const flickCapMult = Math.max(0.2, 1 + getMods().flickSpeedCap);
+      const spd = Math.min(dist / dt * 12 * Math.max(0.1, moveMult) * flickCapMult, CFG.MAX_SPEED * flickCapMult);
       const a   = Math.atan2(dy, dx);
       player.vx = Math.cos(a) * spd;
       player.vy = Math.sin(a) * spd;
@@ -1097,7 +1236,7 @@ function connectEnemy(enemy) {
   state          = State.CONNECTED;
   player.vx      = player.vy = 0;
   beamFlash      = 0;
-  ghostTimer     = CFG.GHOST_FRAMES;
+  ghostTimer     = Math.max(10, Math.round(CFG.GHOST_FRAMES * Math.max(0.05, 1 + getMods().ghostTimerMult)));
 }
 
 function activeSlot() {
@@ -1120,12 +1259,16 @@ function tryUnlock(dx, dy) {
     const redCritAll = mods.redCritAll > 0 && slotColors.includes('red');
     const enemyColors = connectedEnemy.colors || [connectedEnemy.color];
     const colorMatch = slotColors.some(c => enemyColors.includes(c));
-    const crit       = (hasKey || mods.depletedEffects > 0) && (colorMatch || redCritAll);
+    const mismatchCrit = !colorMatch && !redCritAll && mods.mismatchCritChance > 0 && Math.random() < mods.mismatchCritChance;
+    const crit       = (hasKey || mods.depletedEffects > 0) && (colorMatch || redCritAll || mismatchCrit);
 
     const effectiveCoeff = CFG.COMBO_COEFF + mods.comboCoeff;
     const comboMult = 1 + effectiveCoeff * Math.sqrt(combo);
-    const critBonus = 2 + mods.critMult;
-    const dmg = Math.max(1, Math.round(comboMult * mods.globalDmgMult * (crit ? critBonus : 1)));
+    const isRed = slotColors.includes('red');
+    const redDmgBonus = isRed ? mods.redDmgMult : 1;
+    const critBonus = 2 + mods.critMult + (crit && isRed ? mods.redCritMult : 0);
+    const untouchedMult = mods.untouchedBonus > 0 ? (1 + 0.05 * untouchedStreak) : 1;
+    const dmg = Math.max(1, Math.round(comboMult * mods.globalDmgMult * redDmgBonus * untouchedMult * (crit ? critBonus : 1)));
 
     if (hasKey) {
       slot.dur = Math.max(0, slot.dur - (crit ? CFG.DUR_COST_CRIT : CFG.DUR_COST_NORMAL));
@@ -1163,7 +1306,7 @@ function tryUnlock(dx, dy) {
     } else {
       const hitsLanded = connectedEnemy.maxHp - connectedEnemy.hp;
       playHitSound(hitsLanded, connectedEnemy.maxHp, crit, combo, !hasKey);
-      ghostTimer = CFG.GHOST_FRAMES;
+      ghostTimer = Math.max(10, Math.round(CFG.GHOST_FRAMES * Math.max(0.05, 1 + getMods().ghostTimerMult)));
     }
   } else {
     const missMods = getMods();
@@ -1194,7 +1337,7 @@ function applyKeyEffect(keyCol, target) {
 
   if (keyCol === 'blue') {
     const SLOW_R = 220 * (1 + mods.blueSlowRadMult) * rangeMult;
-    const slowDur = Math.round(180 + mods.blueSlowFactor * 180 + (mods.blueSlowFactor < 0 ? 0 : 0));
+    const slowDur = Math.round(180 + mods.blueSlowFactor * 180 + mods.blueSlowDuration);
     for (const e of enemies) {
       if (!e.alive) continue;
       if (Math.hypot(e.x - target.x, e.y - target.y) < SLOW_R) {
@@ -1210,9 +1353,16 @@ function applyKeyEffect(keyCol, target) {
       .sort((a, b) => Math.hypot(a.x - target.x, a.y - target.y) - Math.hypot(b.x - target.x, b.y - target.y));
     for (const e of sorted) {
       if (hits >= chainCount) break;
-      e.hp = Math.max(0, e.hp - 1);
+      const chainHit = 1 + Math.round(mods.yellowChainDmgBonus);
+      e.hp = Math.max(0, e.hp - chainHit);
       e.crackShake = 12;
       addFx('chain', e.x, e.y, { color: COLOR_HEX['yellow'], fromX: target.x, fromY: target.y, maxAge: 28 });
+      if (mods.chainPropagatesEffects > 0) {
+        const chainSlot = activeSlot();
+        for (const col of chainSlot.colors) {
+          if (col !== 'yellow') applyKeyEffect(col, e);
+        }
+      }
       if (e.hp <= 0) {
         e.alive = false;
         score++;
@@ -1225,7 +1375,7 @@ function applyKeyEffect(keyCol, target) {
   } else if (keyCol === 'green') {
     const healAmt = Math.max(0, 1 + mods.greenHealBonus + mods.greenHealMalus);
     if (healAmt > 0) {
-      const maxHp = CFG.PLAYER_HP_MAX + mods.maxHpBonus;
+      const maxHp = CFG.PLAYER_HP_MAX + mods.maxHpBonus - mods.maxHpMalus;
       player.hp = Math.min(maxHp, player.hp + healAmt);
       addFx('heal', player.x, player.y, { maxAge: 35 });
     }
@@ -1244,6 +1394,17 @@ function applyKeyEffect(keyCol, target) {
           killCount++;
           if (Math.random() < KEY_DROP_CHANCE) dropKey(e.x, e.y, e.color);
           addFx('explosion', e.x, e.y, { color: COLOR_HEX[e.color], maxAge: 45 });
+          if (mods.bombChainOnKill > 0) {
+            const chainR = BOMB_R * 0.6, chainDmg = Math.max(1, bombDmg - 1);
+            addFx('bomb', e.x, e.y, { maxAge: 25, color: COLOR_HEX['purple'] });
+            for (const e2 of enemies) {
+              if (!e2.alive || e2 === e) continue;
+              if (Math.hypot(e2.x - e.x, e2.y - e.y) < chainR) {
+                e2.hp = Math.max(0, e2.hp - chainDmg);
+                if (e2.hp <= 0) { e2.alive = false; score++; killCount++; if (Math.random() < KEY_DROP_CHANCE) dropKey(e2.x, e2.y, e2.color); addFx('explosion', e2.x, e2.y, { color: COLOR_HEX[e2.color], maxAge: 45 }); }
+              }
+            }
+          }
         }
       }
     }
@@ -1258,7 +1419,8 @@ function fullyUnlock(enemy) {
 
   // Normal inscription orb spawn threshold
   if (killCount >= nextOrbAt && inscriptionOrbs.length < 3) {
-    nextOrbAt = killCount + ORB_INTERVAL_KILLS;
+    const orbInterval = Math.max(3, Math.round(ORB_INTERVAL_KILLS / Math.max(0.2, 1 + getMods().orbFreqMult + getMods().orbFreqMalus)));
+    nextOrbAt = killCount + orbInterval;
     spawnInscriptionOrb();
   }
 
@@ -1271,7 +1433,7 @@ function fullyUnlock(enemy) {
   // B-S2: heal on kill chance
   const mods = getMods();
   if (mods.healOnKillChance > 0 && Math.random() < mods.healOnKillChance) {
-    player.hp = Math.min(CFG.PLAYER_HP_MAX + mods.maxHpBonus, player.hp + 1);
+    player.hp = Math.min(CFG.PLAYER_HP_MAX + mods.maxHpBonus - mods.maxHpMalus, player.hp + 1);
     addFx('heal', player.x, player.y, { maxAge: 25 });
   }
   // B-M2: bonus durability on kill for the active slot
@@ -1279,6 +1441,26 @@ function fullyUnlock(enemy) {
     const s = activeSlot();
     s.dur = Math.min(durCap(), s.dur + mods.bonusDurOnKill);
   }
+  // B-D4: splash damage to nearby enemies on kill
+  if (mods.splashDmgOnKill > 0) {
+    const splashR = 100 * mods.effectRangeMult;
+    const splashDmg = Math.round(mods.splashDmgOnKill);
+    for (const e of enemies) {
+      if (!e.alive || e === enemy) continue;
+      if (Math.hypot(e.x - enemy.x, e.y - enemy.y) < splashR) {
+        e.hp = Math.max(0, e.hp - splashDmg);
+        e.crackShake = 8;
+        addFx('hit', e.x, e.y, { color: '#ffdd88', maxAge: 18, crit: false, dmg: splashDmg });
+        if (e.hp <= 0) {
+          e.alive = false; score++; killCount++;
+          if (Math.random() < KEY_DROP_CHANCE) dropKey(e.x, e.y, e.color);
+          addFx('explosion', e.x, e.y, { color: COLOR_HEX[e.color], maxAge: 45 });
+        }
+      }
+    }
+  }
+  // B-X5: untouched streak tracks kills without taking damage
+  untouchedStreak++;
   const hex = COLOR_HEX[enemy.color] || CFG.KEY_COLOR;
   const [er, eg, eb] = [
     parseInt(hex.slice(1,3),16),
@@ -1304,6 +1486,8 @@ function fullyUnlock(enemy) {
       player.hp = Math.max(0, player.hp - (1 + Math.max(0, purpMods.incomingDmgBonus)));
       player.invincible = Math.max(30, CFG.HIT_COOLDOWN + purpMods.invincibleBonus + purpMods.invincibleMalus);
       player.hitFlash   = 22;
+      player.stunTimer  = Math.round(purpMods.stunOnHit);
+      untouchedStreak   = 0;
       addFx('dmg', player.x, player.y, { maxAge: 25 });
       if (player.hp <= 0) {
         player.hp = 0;
@@ -1382,6 +1566,8 @@ function resetGame() {
   beamFlash = uiShake = ghostTimer = 0;
   screenFlash = null; connectedEnemy = null;
   combo = 0; maxCombo = 0; killCount = 0; comboMissCount = 0;
+  untouchedStreak = 0;
+  comboIdleFrames = 0;
   lastResult = null;
   activeInscriptions.length = 0;
   inscriptionOrbs.length    = 0;
@@ -1415,11 +1601,24 @@ function update() {
     }
     player.x += player.vx;
     player.y += player.vy;
-    player.vx *= CFG.FRICTION;
-    player.vy *= CFG.FRICTION;
+    const friction = Math.min(0.998, CFG.FRICTION + getMods().inertiaBonus * 0.018);
+    player.vx *= friction;
+    player.vy *= friction;
   }
   if (player.invincible > 0) player.invincible--;
   if (player.hitFlash   > 0) player.hitFlash--;
+  if (player.stunTimer  > 0) player.stunTimer--;
+
+  // D-R3: combo idle decay
+  if (combo > 0) {
+    if (state === State.IDLE) {
+      comboIdleFrames++;
+      const decayInterval = getMods().comboDrainAccel > 0 ? 45 : 300;
+      if (comboIdleFrames >= decayInterval) { combo = Math.max(0, combo - 1); comboIdleFrames = 0; }
+    } else {
+      comboIdleFrames = 0;
+    }
+  }
 
   updateCamera();
 
@@ -1459,11 +1658,14 @@ function update() {
       const d = Math.hypot(player.x - e.x, player.y - e.y);
       if (d < player.r + e.r) {
         const hitMods  = getMods();
-        const dmgTaken = 1 + Math.max(0, hitMods.incomingDmgBonus);
+        const connectedBonus = state === State.CONNECTED ? hitMods.connectedDmgMult : 0;
+        const dmgTaken = 1 + Math.max(0, hitMods.incomingDmgBonus) + connectedBonus;
         const invTime  = Math.max(30, CFG.HIT_COOLDOWN + hitMods.invincibleBonus + hitMods.invincibleMalus);
         player.hp     -= dmgTaken;
         player.invincible = invTime;
         player.hitFlash   = 22;
+        player.stunTimer  = Math.round(hitMods.stunOnHit);
+        untouchedStreak   = 0;
         combo = 0; comboMissCount = 0; // hit breaks combo
         addFx('dmg', player.x, player.y, { maxAge: 25 });
 
@@ -1863,16 +2065,18 @@ function renderEnemy(e, t) {
   ctx.stroke();
 
   // Color dots above enemy (one per component for fusion)
+  const worldDist = Math.hypot(e.x - player.x, e.y - player.y);
+  const colorVisible = getMods().enemyColorFarHide === 0 || worldDist < 180;
   allColors.forEach((c, ci) => {
     const ox = (ci - (allColors.length - 1) / 2) * 8;
-    ctx.fillStyle = COLOR_HEX[c];
+    ctx.fillStyle = colorVisible ? COLOR_HEX[c] : '#555';
     ctx.beginPath(); ctx.arc(ox, -e.r - 5, 3, 0, Math.PI * 2); ctx.fill();
   });
 
   // HP pips — alternate component colors for fusion enemies
   for (let i = 0; i < e.maxHp; i++) {
     const a = (i / e.maxHp) * Math.PI * 2 - Math.PI * 0.5;
-    const pipCol = COLOR_HEX[allColors[i % allColors.length]];
+    const pipCol = colorVisible ? COLOR_HEX[allColors[i % allColors.length]] : '#666';
     ctx.fillStyle = i < e.hp ? pipCol : '#ccc';
     ctx.beginPath(); ctx.arc(Math.cos(a) * (e.r + 7), Math.sin(a) * (e.r + 7), 2.5, 0, Math.PI * 2); ctx.fill();
   }
