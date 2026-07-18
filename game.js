@@ -730,7 +730,7 @@ function playHitSound(hitsLanded, maxHp, crit, combo = 0, depleted = false) {
   }
 }
 
-// 撃破音: Aメジャーコードのシマー (A5–C#6–E6–A6 アルペジオ + 高域シマー)
+// Full unlock: bright shimmering chord
 function playUnlockSound() {
   const a   = ac();
   const now = a.currentTime;
@@ -739,43 +739,31 @@ function playUnlockSound() {
   master.gain.setValueAtTime(0.45, now);
   master.connect(a.destination);
 
-  // Chord arpeggio: A5 → C#6 → E6 → A6
+  // Chord: A5 + C#6 + E6 + A6
   const freqs = [880, 1108.73, 1318.51, 1760];
-  const amps  = [0.9, 0.75, 0.65, 0.50];
+  const amps  = [0.9, 0.75, 0.65, 0.5];
   for (let i = 0; i < freqs.length; i++) {
-    const t0   = now + i * 0.018;
     const osc  = a.createOscillator();
     const gain = a.createGain();
     osc.type = 'sine';
-    osc.frequency.setValueAtTime(freqs[i], t0);
-    gain.gain.setValueAtTime(amps[i], t0);
-    gain.gain.exponentialRampToValueAtTime(0.001, t0 + 1.65);
-    osc.connect(gain); gain.connect(master);
-    osc.start(t0); osc.stop(t0 + 1.75);
+    osc.frequency.setValueAtTime(freqs[i], now);
+    gain.gain.setValueAtTime(amps[i], now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 1.6);
+    osc.connect(gain);
+    gain.connect(master);
+    osc.start(now);
+    osc.stop(now + 1.7);
   }
 
-  // 高域シマー (6–8 kHz でトレモロ)
-  const shimOsc  = a.createOscillator();
-  const shimGain = a.createGain();
-  const shimMod  = a.createOscillator();
-  const shimModG = a.createGain();
-  shimOsc.type  = 'sine'; shimOsc.frequency.value  = 7040;
-  shimMod.type  = 'sine'; shimMod.frequency.value  = 18;
-  shimModG.gain.value = 0.10;
-  shimGain.gain.setValueAtTime(0.18, now);
-  shimGain.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
-  shimMod.connect(shimModG); shimModG.connect(shimGain.gain);
-  shimOsc.connect(shimGain); shimGain.connect(master);
-  shimOsc.start(now); shimOsc.stop(now + 0.6);
-  shimMod.start(now); shimMod.stop(now + 0.6);
-
-  // Click transient
-  const { node: co, src: cs } = makeClickNode(a, 4000, 0.02);
+  // Click transient on top
+  const { node: clickOut, src: clickSrc } = makeClickNode(a, 4000, 0.02);
   const cg = a.createGain();
   cg.gain.setValueAtTime(1.2, now);
   cg.gain.exponentialRampToValueAtTime(0.001, now + 0.018);
-  co.connect(cg); cg.connect(master);
-  cs.start(now); cs.stop(now + 0.025);
+  clickOut.connect(cg);
+  cg.connect(master);
+  clickSrc.start(now);
+  clickSrc.stop(now + 0.025);
 }
 
 // Soft triangle tone: slot A selected
