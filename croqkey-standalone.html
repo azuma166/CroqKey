@@ -25,21 +25,20 @@ const COLOR_HEX = {
   green:  '#3db86a',
   purple: '#9844e8',
 };
-// Phase table: time (seconds) → which colors can spawn
-// New color introduced with only red, then previous colors gradually return
-const COLOR_PHASES = [
-  { t:   0, colors: ['red'] },
-  { t:  60, colors: ['red', 'blue'] },
-  { t: 120, colors: ['red', 'yellow'] },
-  { t: 180, colors: ['red', 'blue', 'yellow'] },
-  { t: 240, colors: ['red', 'green'] },
-  { t: 300, colors: ['red', 'blue', 'green'] },
-  { t: 360, colors: ['red', 'blue', 'yellow', 'green'] },
-  { t: 420, colors: ['red', 'purple'] },
-  { t: 480, colors: ['red', 'blue', 'purple'] },
-  { t: 540, colors: ['red', 'blue', 'yellow', 'purple'] },
-  { t: 600, colors: ['red', 'blue', 'yellow', 'green', 'purple'] },
-];
+// Color weather: continuous weight system
+// Each color's weight evolves over time using a sinusoidal pattern.
+// Colors unlock gradually; v4 spec keeps a "tutorial slope" for the first run.
+// unlock_t: time(s) at which color starts becoming available
+// base: weight once fully available (0–1 scale, red stays at 1.0)
+// period: oscillation period in seconds for weather waves
+// phase: wave offset so colors don't peak simultaneously
+const COLOR_WEATHER = {
+  red:    { unlock_t:   0, base: 1.0, period: 180, phase: 0.00 },
+  blue:   { unlock_t:  60, base: 0.7, period: 220, phase: 0.30 },
+  yellow: { unlock_t: 120, base: 0.5, period: 160, phase: 0.55 },
+  green:  { unlock_t: 240, base: 0.6, period: 200, phase: 0.80 },
+  purple: { unlock_t: 420, base: 0.5, period: 240, phase: 0.15 },
+};
 
 const CFG = {
   PLAYER_R:          13,
@@ -409,13 +408,61 @@ function spawnEnemies() {
 // single enemy spawn used by trickle system
 function spawnEnemy() { addEnemy(); }
 
-function availableColors() {
-  let phase = COLOR_PHASES[0];
-  for (const p of COLOR_PHASES) {
-    if (gameTime >= p.t) phase = p;
-    else break;
+// Returns a color sampled by weight from the current color weather.
+// Each color ramps in from 0 at its unlock_t, reaching full base weight by
+// unlock_t + 60s, then oscillates with a gentle sine wave.
+function colorWeather() {
+  const weights = {};
+  for (const col of COLORS) {
+    const cw = COLOR_WEATHER[col];
+    if (gameTime < cw.unlock_t) { weights[col] = 0; continue; }
+    const ramp = Math.min(1, (gameTime - cw.unlock_t) / 60); // 0→1 over 60s
+    const wave = 0.5 + 0.5 * Math.sin(2 * Math.PI * gameTime / cw.period + cw.phase * Math.PI * 2);
+    weights[col] = cw.base * ramp * (0.5 + 0.5 * wave); // oscillates between 0 and base
   }
-  return phase.colors;
+  return weights;
+}
+
+function sampleColorWeather() {
+  const w = colorWeather();
+  let total = 0;
+  for (const col of COLORS) total += w[col];
+  if (total <= 0) return 'red'; // fallback
+  let r = Math.random() * total;
+  for (const col of COLORS) {
+    r -= w[col];
+    if (r <= 0) return col;
+  }
+  return 'red';
+}
+
+const COLOR_SPD_MULT = { red: 1.0, blue: 0.5, yellow: 2.0, green: 1.0, purple: 1.1 };
+const COLOR_HP      = { red: 6,   blue: 8,   yellow: 3,   green: 6,   purple: 6   };
+const FUSION_UNLOCK_KILLS = 30; // fusion enemies start appearing after 30 kills
+const FUSION_CHANCE_BASE  = 0.20; // 20% of spawns become fusion once unlocked
+
+function makeFusionEnemy(x, y, components) {
+  // Fusion rules: HP = max, speed = average, behavior = all combined
+  const mods = getMods();
+  const hp = Math.max(...components.map(c => COLOR_HP[c] || CFG.ENEMY_HP)) + mods.enemyHpBonus;
+  const avgSpdMult = components.reduce((s, c) => s + (COLOR_SPD_MULT[c] || 1), 0) / components.length;
+  const spd = CFG.ENEMY_BASE_SPEED * (0.5 + Math.random() * 0.8) * avgSpdMult * (1 + mods.enemySpeedMult);
+  const ang = Math.random() * Math.PI * 2;
+  return {
+    x, y,
+    vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd,
+    maxSpd: spd * 1.4,
+    r: CFG.ENEMY_R + 2 * (components.length - 1), // slightly bigger
+    hp, maxHp: hp,
+    color: components[0], // primary color for display tint
+    colors: components,   // all component colors
+    fusion: true,
+    angleQueue: [randomAngle(), randomAngle(), randomAngle(), randomAngle()],
+    alive: true,
+    crackShake: 0,
+    slowTimer: 0,
+    healAuraTimer: 0,
+  };
 }
 
 function addEnemy() {
@@ -429,25 +476,36 @@ function addEnemy() {
     y = player.y + Math.sin(a) * d;
   } while (++tries < 20 && Math.hypot(x - player.x, y - player.y) < minDist);
 
-  const cols = availableColors();
-  const color = cols[Math.floor(Math.random() * cols.length)];
+  // Fusion chance after threshold
+  const mods = getMods();
+  const fusionUnlock = FUSION_UNLOCK_KILLS - (mods.fusionEarlySpawn > 0 ? 12 : 0);
+  if (killCount >= fusionUnlock && Math.random() < FUSION_CHANCE_BASE) {
+    // Pick 2 colors that are currently active in the weather
+    const w = colorWeather();
+    const pool = COLORS.filter(c => w[c] > 0.05);
+    if (pool.length >= 2) {
+      const idx1 = Math.floor(Math.random() * pool.length);
+      let idx2 = Math.floor(Math.random() * (pool.length - 1));
+      if (idx2 >= idx1) idx2++;
+      enemies.push(makeFusionEnemy(x, y, [pool[idx1], pool[idx2]]));
+      return;
+    }
+  }
 
-  // Color-specific stats
-  const colorSpeedMult = { red: 1.0, blue: 0.5, yellow: 2.0, green: 1.0, purple: 1.1 };
-  const colorHp        = { red: 6,   blue: 8,   yellow: 3,   green: 6,   purple: 6   };
-  const spdMult = colorSpeedMult[color] || 1.0;
-  const hp      = colorHp[color] || CFG.ENEMY_HP;
+  const color = sampleColorWeather();
+  const spdMult = (COLOR_SPD_MULT[color] || 1.0) * (1 + mods.enemySpeedMult);
+  const hp      = (COLOR_HP[color] || CFG.ENEMY_HP) + mods.enemyHpBonus;
   const spd = CFG.ENEMY_BASE_SPEED * (0.5 + Math.random() * 0.8) * spdMult;
   const ang = Math.random() * Math.PI * 2;
   enemies.push({
     x, y,
-    vx: Math.cos(ang) * spd,
-    vy: Math.sin(ang) * spd,
+    vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd,
     maxSpd: spd * 1.4,
     r:  CFG.ENEMY_R,
-    hp,
-    maxHp: hp,
+    hp, maxHp: hp,
     color,
+    colors: [color],
+    fusion: false,
     angleQueue: [randomAngle(), randomAngle(), randomAngle(), randomAngle()],
     alive: true,
     crackShake: 0,
@@ -721,8 +779,9 @@ function tryUnlock(dx, dy) {
     const keyCol  = activeKeyColor();
     const hasKey  = keyInventory[keyCol] > 0;
     const redCritAll = mods.redCritAll > 0 && keyCol === 'red';
+    const colorMatch = (connectedEnemy.colors || [connectedEnemy.color]).includes(keyCol);
     const crit    = (hasKey || mods.depletedEffects > 0) &&
-                    (keyCol === connectedEnemy.color || redCritAll);
+                    (colorMatch || redCritAll);
 
     const effectiveCoeff = CFG.COMBO_COEFF + mods.comboCoeff;
     const comboMult = 1 + effectiveCoeff * Math.sqrt(combo);
@@ -864,10 +923,14 @@ function fullyUnlock(enemy) {
   addFx('explosion', enemy.x, enemy.y, { color: hex, maxAge: 55 });
   playUnlockSound();
   screenFlash = { r: er, g: eg, b: eb, alpha: 0.22 };
-  if (Math.random() < KEY_DROP_CHANCE) dropKey(enemy.x, enemy.y, enemy.color);
+  // Drop all component color keys for fusion enemies
+  const dropColors = enemy.fusion ? enemy.colors : [enemy.color];
+  for (const dc of dropColors) {
+    if (Math.random() < KEY_DROP_CHANCE) dropKey(enemy.x, enemy.y, dc);
+  }
 
-  // Purple: death explosion — damages player if within 150px
-  if (enemy.color === 'purple') {
+  // Purple: death explosion — damages player if within 150px (including fusion with purple)
+  if ((enemy.colors || [enemy.color]).includes('purple')) {
     const PURP_R = 150;
     addFx('bomb', enemy.x, enemy.y, { maxAge: 35, color: COLOR_HEX['purple'] });
     if (player.invincible <= 0 && Math.hypot(player.x - enemy.x, player.y - enemy.y) < PURP_R) {
@@ -966,7 +1029,7 @@ function update() {
     if (e.crackShake > 0) e.crackShake--;
 
     // Green: healer aura — restore 1 HP to nearby enemies every 120 frames
-    if (e.color === 'green') {
+    if ((e.colors || [e.color]).includes('green')) {
       e.healAuraTimer = (e.healAuraTimer || 0) + 1;
       if (e.healAuraTimer >= 120) {
         e.healAuraTimer = 0;
@@ -1000,11 +1063,14 @@ function update() {
     }
   }
 
-  // Continuous enemy trickle
+  // Continuous enemy trickle (density increases with time + inscription mods)
   {
+    const mods0    = getMods();
     const alive    = enemies.filter(e => e.alive).length;
-    const maxCount = Math.min(CFG.ENEMY_COUNT_MAX, CFG.ENEMY_COUNT + Math.floor(gameTime / 30));
-    const interval = Math.max(180, CFG.SPAWN_INTERVAL - Math.floor(gameTime / 20) * 40);
+    const baseMax  = CFG.ENEMY_COUNT + Math.floor(gameTime / 30) + Math.round(mods0.enemyCountBonus);
+    const maxCount = Math.min(CFG.ENEMY_COUNT_MAX + Math.round(mods0.enemyCountBonus), baseMax);
+    const baseInterval = Math.max(180, CFG.SPAWN_INTERVAL - Math.floor(gameTime / 20) * 40);
+    const interval = Math.max(90, Math.round(baseInterval * (1 + mods0.spawnIntervalMult)));
     spawnTimer++;
     if (spawnTimer >= interval && alive < maxCount) {
       spawnEnemy();
@@ -1290,19 +1356,21 @@ function renderEnemy(e, t) {
     }
   }
 
-  // Green healer: persistent aura ring
-  if (e.color === 'green') {
+  const allColors = e.colors || [e.color];
+
+  // Green healer aura (any component)
+  if (allColors.includes('green')) {
     ctx.globalAlpha = 0.12 + 0.06 * Math.sin(t * 2.5 + (e.healAuraTimer || 0) * 0.1);
-    ctx.strokeStyle = ecol; ctx.lineWidth = 1.2; ctx.setLineDash([4, 6]);
+    ctx.strokeStyle = COLOR_HEX['green']; ctx.lineWidth = 1.2; ctx.setLineDash([4, 6]);
     ctx.beginPath(); ctx.arc(0, 0, 200, 0, Math.PI * 2); ctx.stroke();
     ctx.setLineDash([]);
     ctx.globalAlpha = 1;
   }
 
-  // Purple: warning pulse showing blast radius
-  if (e.color === 'purple') {
+  // Purple warning pulse
+  if (allColors.includes('purple')) {
     ctx.globalAlpha = 0.07 + 0.05 * Math.sin(t * 5);
-    ctx.strokeStyle = ecol; ctx.lineWidth = 1.5; ctx.setLineDash([2, 5]);
+    ctx.strokeStyle = COLOR_HEX['purple']; ctx.lineWidth = 1.5; ctx.setLineDash([2, 5]);
     ctx.beginPath(); ctx.arc(0, 0, 150, 0, Math.PI * 2); ctx.stroke();
     ctx.setLineDash([]);
     ctx.globalAlpha = 1;
@@ -1319,11 +1387,28 @@ function renderEnemy(e, t) {
     ctx.globalAlpha = 1;
   }
 
-  // Body (subtle color tint)
-  ctx.fillStyle   = focused ? `${ecol}28` : `${ecol}12`;
-  ctx.strokeStyle = focused ? '#222' : '#777';
-  ctx.lineWidth   = focused ? 2.5 : 1.5;
-  ctx.beginPath(); ctx.arc(0, 0, e.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  // Body — for fusion enemies use a conic-like multi-color ring
+  if (e.fusion && allColors.length > 1) {
+    const sliceAngle = (Math.PI * 2) / allColors.length;
+    for (let ci = 0; ci < allColors.length; ci++) {
+      const sc = COLOR_HEX[allColors[ci]];
+      ctx.globalAlpha = focused ? 0.22 : 0.12;
+      ctx.fillStyle   = sc;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.arc(0, 0, e.r, ci * sliceAngle - Math.PI / 2, (ci + 1) * sliceAngle - Math.PI / 2);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = focused ? '#111' : '#555';
+    ctx.lineWidth   = focused ? 2.5 : 1.5;
+    ctx.beginPath(); ctx.arc(0, 0, e.r, 0, Math.PI * 2); ctx.stroke();
+  } else {
+    ctx.fillStyle   = focused ? `${ecol}28` : `${ecol}12`;
+    ctx.strokeStyle = focused ? '#222' : '#777';
+    ctx.lineWidth   = focused ? 2.5 : 1.5;
+    ctx.beginPath(); ctx.arc(0, 0, e.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  }
 
   // Keyhole (colored)
   const kr = e.r * 0.28, ky = -e.r * 0.22, ksw = e.r * 0.22, ksh = e.r * 0.45;
@@ -1334,11 +1419,14 @@ function renderEnemy(e, t) {
   ctx.lineTo( ksw, ky + ksh);      ctx.lineTo( ksw, ky + kr * 0.7);
   ctx.stroke();
 
-  // Color dot above enemy
-  ctx.fillStyle = ecol;
-  ctx.beginPath(); ctx.arc(0, -e.r - 5, 3, 0, Math.PI * 2); ctx.fill();
+  // Color dots above enemy (one per component for fusion)
+  allColors.forEach((c, ci) => {
+    const ox = (ci - (allColors.length - 1) / 2) * 8;
+    ctx.fillStyle = COLOR_HEX[c];
+    ctx.beginPath(); ctx.arc(ox, -e.r - 5, 3, 0, Math.PI * 2); ctx.fill();
+  });
 
-  // HP pips (enemy color)
+  // HP pips (enemy primary color)
   for (let i = 0; i < e.maxHp; i++) {
     const a = (i / e.maxHp) * Math.PI * 2 - Math.PI * 0.5;
     ctx.fillStyle = i < e.hp ? ecol : '#ccc';
