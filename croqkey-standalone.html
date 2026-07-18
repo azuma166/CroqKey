@@ -12,7 +12,8 @@
 </head>
 <body>
   <canvas id="game"></canvas>
-  <script>// ─────────────────────────────────────────────
+  <script>
+// ─────────────────────────────────────────────
 //  CroqKey — Core Prototype v2
 // ─────────────────────────────────────────────
 
@@ -114,6 +115,7 @@ const BUFF_CATALOG = {
     { id:'B-M2', label: '撃破耐久 +1',           key: 'bonusDurOnKill',        val: 1    },
     { id:'B-M3', label: '耐久上限 +20%',         key: 'durPoolMult',           val: 0.20 },
     { id:'B-M4', label: '刻印頻度 +20%',         key: 'orbFreqMult',           val: 0.20 },
+    { id:'B-V1', label: '視野拡大 +10%',         key: 'cameraZoom',            val: -0.10 },
   ],
   medium: [
     { id:'B-R1', label: '赤ダメ +30%',           key: 'redDmgMult',            val: 1.30 },
@@ -141,6 +143,7 @@ const BUFF_CATALOG = {
     { id:'B-M2', label: '撃破耐久 +2',            key: 'bonusDurOnKill',        val: 2    },
     { id:'B-M3', label: '耐久上限 +40%',          key: 'durPoolMult',           val: 0.40 },
     { id:'B-M4', label: '刻印頻度 +40%',          key: 'orbFreqMult',           val: 0.40 },
+    { id:'B-V1', label: '視野拡大 +20%',          key: 'cameraZoom',            val: -0.20 },
     { id:'B-X3', label: '被弾時 自動スロー',      key: 'autoSlowOnHit',         val: 1    },
   ],
   heavy: [
@@ -169,6 +172,7 @@ const BUFF_CATALOG = {
     { id:'B-M2', label: '撃破耐久 +4',            key: 'bonusDurOnKill',        val: 4    },
     { id:'B-M3', label: '耐久上限 +70%',          key: 'durPoolMult',           val: 0.70 },
     { id:'B-M4', label: '刻印頻度 +70%',          key: 'orbFreqMult',           val: 0.70 },
+    { id:'B-V1', label: '視野拡大 +35%',          key: 'cameraZoom',            val: -0.35 },
     { id:'B-X1', label: '赤→全敵クリット',       key: 'redCritAll',            val: 1    },
     { id:'B-X2', label: '枯渇でも効果発動',       key: 'depletedEffects',       val: 1    },
     { id:'B-X4', label: '紫撃破でボム連鎖',       key: 'bombChainOnKill',       val: 1    },
@@ -280,7 +284,7 @@ function getMods() {
     predictArrowSub:  0,
     invincibleBonus:  0,
     invincibleMalus:  0,
-    cameraZoom:       0, // zoom-in fraction (positive = narrower view)
+    cameraZoom:       0, // positive = zoom in (narrower), negative = zoom out (wider)
     redCritAll:       0,
     depletedEffects:  0,
     effectRangeMult:  1,
@@ -1770,11 +1774,11 @@ function render() {
   ctx.fillStyle = '#f8f7f4';
   ctx.fillRect(0, 0, w, h);
 
-  // ── World transform (with optional D-V1 zoom-in) ──
+  // ── World transform (camera zoom: positive=zoom in/narrow, negative=zoom out/wide) ──
   ctx.save();
-  const zoomMod = getMods().cameraZoom; // 0=normal, 0.35=narrow view
-  if (zoomMod > 0) {
-    const scale = 1 - zoomMod * 0.4; // at max zoom 0.35 → scale 0.86
+  const zoomMod = getMods().cameraZoom;
+  if (zoomMod !== 0) {
+    const scale = 1 + zoomMod * 0.4; // D-V1 +0.35 → 1.14 (zoom in); B-V1 -0.35 → 0.86 (zoom out)
     ctx.translate(w / 2, h / 2);
     ctx.scale(scale, scale);
     ctx.translate(-w / 2, -h / 2);
@@ -3173,6 +3177,7 @@ function loop() { update(); render(); requestAnimationFrame(loop); }
 initPlayer();
 spawnEnemies();
 requestAnimationFrame(loop);
+
 </script>
 </body>
 </html>
