@@ -66,6 +66,7 @@ const BUFF_CATALOG = {
   light: [
     { id:'B-D1', label: '全ダメ +15%',        key: 'globalDmgMult',    val: 1.15 },
     { id:'B-C1', label: 'コンボ係数 +0.03',   key: 'comboCoeff',       val: 0.03 },
+    { id:'B-C2', label: 'ミス許容 1回',        key: 'comboForgives',    val: 1 },
     { id:'B-C4', label: '許容角 +10°',         key: 'flickTolerance',   val: 10 * Math.PI / 180 },
     { id:'B-S1', label: '最大HP +1',           key: 'maxHpBonus',       val: 1 },
     { id:'B-M1', label: '鍵耐久取得 +4',       key: 'keyDropDurBonus',  val: 4 },
@@ -80,7 +81,9 @@ const BUFF_CATALOG = {
     { id:'B-C1', label: 'コンボ係数 +0.06',   key: 'comboCoeff',       val: 0.06 },
     { id:'B-S1', label: '最大HP +2',           key: 'maxHpBonus',       val: 2 },
     { id:'B-S2', label: '撃破でHP+1(12%)',     key: 'healOnKillChance', val: 0.12 },
+    { id:'B-S3', label: 'コンボ30で1秒無敵',  key: 'comboInvincible',  val: 30 },
     { id:'B-M2', label: '撃破で耐久 +2',       key: 'bonusDurOnKill',   val: 2 },
+    { id:'B-M3', label: '耐久上限 +40%',       key: 'durPoolMult',      val: 0.40 },
     { id:'B-Y1', label: '黄チェイン +2段',     key: 'yellowChainExtra', val: 2 },
     { id:'B-U2', label: 'スロー強化 -20%',     key: 'blueSlowFactor',   val: -0.20 },
     { id:'B-X3', label: '被弾時 自動スロー',   key: 'autoSlowOnHit',    val: 1 },
@@ -89,6 +92,7 @@ const BUFF_CATALOG = {
     { id:'B-D1', label: '全ダメ +50%',        key: 'globalDmgMult',    val: 1.50 },
     { id:'B-C1', label: 'コンボ係数 +0.10',   key: 'comboCoeff',       val: 0.10 },
     { id:'B-S1', label: '最大HP +4',           key: 'maxHpBonus',       val: 4 },
+    { id:'B-S3', label: 'コンボ20で1秒無敵',  key: 'comboInvincible',  val: 20 },
     { id:'B-X1', label: '赤→全敵クリット',    key: 'redCritAll',       val: 1 },
     { id:'B-X2', label: '枯渇でも効果発動',   key: 'depletedEffects',  val: 1 },
     { id:'B-P2', label: 'ボムダメ +3',         key: 'purpleBombDmg',    val: 3 },
@@ -99,6 +103,7 @@ const BUFF_CATALOG = {
 const DEBUFF_CATALOG = {
   light: [
     { id:'D-M1', label: '移動速度 -10%',      key: 'speedMult',        val: -0.10 },
+    { id:'D-V1', label: '視野縮小 -10%',       key: 'cameraZoom',       val: 0.10 },
     { id:'D-V2', label: '予測矢印 -1本',       key: 'predictArrowSub',  val: 1 },
     { id:'D-E3', label: '敵速度 +10%',         key: 'enemySpeedMult',   val: 0.10 },
     { id:'D-R4', label: '鍵ドロップ率 -20%',   key: 'keyDropChanceMult',val: -0.20 },
@@ -108,9 +113,12 @@ const DEBUFF_CATALOG = {
   ],
   medium: [
     { id:'D-M1', label: '移動速度 -20%',      key: 'speedMult',        val: -0.20 },
+    { id:'D-V1', label: '視野縮小 -20%',       key: 'cameraZoom',       val: 0.20 },
     { id:'D-E3', label: '敵速度 +20%',         key: 'enemySpeedMult',   val: 0.20 },
     { id:'D-E1', label: '敵数 +4',             key: 'enemyCountBonus',  val: 4 },
     { id:'D-E2', label: 'スポーン間隔 -30%',   key: 'spawnIntervalMult',val: -0.30 },
+    { id:'D-E5', label: '敵追尾加速 +30%',     key: 'enemyAccelMult',   val: 0.30 },
+    { id:'D-R2', label: '耐久上限 -35%',       key: 'durPoolMult',      val: -0.35 },
     { id:'D-S4', label: '緑回復量 -2',         key: 'greenHealMalus',   val: -2 },
     { id:'D-M3', label: 'タップ停止無効',      key: 'noTapStop',        val: 1 },
     { id:'D-O2', label: '許容角 -15°',         key: 'flickTolerance',   val: -15 * Math.PI / 180 },
@@ -118,7 +126,9 @@ const DEBUFF_CATALOG = {
   heavy: [
     { id:'D-O1', label: '緊急離脱不可',        key: 'cannotEscape',     val: 1 },
     { id:'D-M1', label: '移動速度 -35%',       key: 'speedMult',        val: -0.35 },
+    { id:'D-V1', label: '視野縮小 -35%',       key: 'cameraZoom',       val: 0.35 },
     { id:'D-E4', label: '敵HP +3',             key: 'enemyHpBonus',     val: 3 },
+    { id:'D-E5', label: '敵追尾加速 +50%',     key: 'enemyAccelMult',   val: 0.50 },
     { id:'D-S3', label: '被ダメ +1',           key: 'incomingDmgBonus', val: 1 },
     { id:'D-S4', label: '緑回復無効',          key: 'greenHealMalus',   val: -999 },
     { id:'D-E6', label: '融合個体 早期出現',   key: 'fusionEarlySpawn', val: 1 },
@@ -131,11 +141,14 @@ function getMods() {
     globalDmgMult:    1,
     critMult:         0,
     comboCoeff:       0,
+    comboForgives:    0,
+    comboInvincible:  0, // combo threshold for temp invincibility (0=disabled)
     flickTolerance:   0,
     maxHpBonus:       0,
     healOnKillChance: 0,
     keyDropDurBonus:  0,
     bonusDurOnKill:   0,
+    durPoolMult:      0, // net cap multiplier (positive=buff, negative=debuff)
     greenHealBonus:   0,
     greenHealMalus:   0,
     blueSlowRadMult:  0,
@@ -145,6 +158,7 @@ function getMods() {
     yellowChainExtra: 0,
     speedMult:        0,
     enemySpeedMult:   0,
+    enemyAccelMult:   0,
     enemyCountBonus:  0,
     enemyHpBonus:     0,
     spawnIntervalMult:0,
@@ -152,6 +166,7 @@ function getMods() {
     predictArrowSub:  0,
     invincibleBonus:  0,
     invincibleMalus:  0,
+    cameraZoom:       0, // zoom-in fraction (positive = narrower view)
     redCritAll:       0,
     depletedEffects:  0,
     effectRangeMult:  1,
@@ -190,9 +205,15 @@ function applyInscriptionMod(m, entry) {
     case 'blueSlowFactor':   m.blueSlowFactor   += v; break;
     case 'purpleBombRadMult':m.purpleBombRadMult+= v; break;
     case 'purpleBombDmg':    m.purpleBombDmg    += v; break;
+    case 'comboForgives':    m.comboForgives    += v; break;
+    case 'comboInvincible':
+      // take the lowest (most lenient) threshold; 0 means disabled
+      if (m.comboInvincible === 0 || v < m.comboInvincible) m.comboInvincible = v; break;
+    case 'durPoolMult':      m.durPoolMult      += v; break;
     case 'yellowChainExtra': m.yellowChainExtra += v; break;
     case 'speedMult':        m.speedMult        += v; break;
     case 'enemySpeedMult':   m.enemySpeedMult   += v; break;
+    case 'enemyAccelMult':   m.enemyAccelMult   += v; break;
     case 'enemyCountBonus':  m.enemyCountBonus  += v; break;
     case 'enemyHpBonus':     m.enemyHpBonus     += v; break;
     case 'spawnIntervalMult':m.spawnIntervalMult+= v; break;
@@ -200,6 +221,7 @@ function applyInscriptionMod(m, entry) {
     case 'predictArrowSub':  m.predictArrowSub  += v; break;
     case 'invincibleBonus':  m.invincibleBonus  += v; break;
     case 'invincibleMalus':  m.invincibleMalus  += v; break;
+    case 'cameraZoom':       m.cameraZoom       += v; break;
     case 'redCritAll':       m.redCritAll       += v; break;
     case 'depletedEffects':  m.depletedEffects  += v; break;
     case 'effectRangeMult':  m.effectRangeMult  *= v; break;
@@ -354,6 +376,7 @@ let screenFlash    = null;
 let combo          = 0;
 let maxCombo       = 0;
 let killCount      = 0;
+let comboMissCount = 0; // counts forgiven misses this combo chain
 const activeInscriptions = [];
 const inscriptionOrbs    = [];
 let draftChoices         = [];
@@ -533,9 +556,14 @@ function updateKeyDrops() {
   }
 }
 
+function durCap() {
+  return Math.max(8, Math.round(CFG.KEY_DROP_DUR * 4 * (1 + getMods().durPoolMult)));
+}
+
 function collectKey(color) {
   const mods = getMods();
-  keyInventory[color] = (keyInventory[color] || 0) + CFG.KEY_DROP_DUR + mods.keyDropDurBonus;
+  const cap  = durCap();
+  keyInventory[color] = Math.min(cap, (keyInventory[color] || 0) + CFG.KEY_DROP_DUR + mods.keyDropDurBonus);
 }
 
 // ══════════════════════════════════════════════
@@ -779,7 +807,15 @@ function tryUnlock(dx, dy) {
     }
 
     combo++;
+    comboMissCount = 0;
     if (combo > maxCombo) maxCombo = combo;
+
+    // B-S3: temp invincibility at combo threshold
+    const comboInvThreshold = mods.comboInvincible;
+    if (comboInvThreshold > 0 && combo > 0 && combo % comboInvThreshold === 0) {
+      player.invincible = Math.max(player.invincible, 60); // 1 second
+      addFx('heal', player.x, player.y, { maxAge: 20 });
+    }
 
     connectedEnemy.hp -= dmg;
     connectedEnemy.crackShake = 18;
@@ -792,6 +828,7 @@ function tryUnlock(dx, dy) {
       crit,
       dmg,
     });
+    if (crit && navigator.vibrate) navigator.vibrate(14);
     if (hasKey || mods.depletedEffects > 0) applyKeyEffect(keyCol, connectedEnemy);
     if (connectedEnemy.hp <= 0) {
       fullyUnlock(connectedEnemy);
@@ -801,8 +838,16 @@ function tryUnlock(dx, dy) {
       ghostTimer = CFG.GHOST_FRAMES;
     }
   } else {
-    combo = 0;
-    uiShake = 10;
+    const missMods = getMods();
+    if (missMods.comboForgives > 0 && comboMissCount < missMods.comboForgives) {
+      comboMissCount++;
+      // forgiven miss: shake but don't break combo
+      uiShake = 6;
+    } else {
+      combo = 0;
+      comboMissCount = 0;
+      uiShake = 10;
+    }
     addFx('miss', player.x, player.y, { maxAge: 16 });
   }
 }
@@ -898,7 +943,7 @@ function fullyUnlock(enemy) {
   // B-M2: bonus durability on kill for the active key color
   if (mods.bonusDurOnKill > 0) {
     const kc = activeKeyColor();
-    keyInventory[kc] = Math.min(CFG.KEY_DROP_DUR * 4, keyInventory[kc] + mods.bonusDurOnKill);
+    keyInventory[kc] = Math.min(durCap(), keyInventory[kc] + mods.bonusDurOnKill);
   }
   const hex = COLOR_HEX[enemy.color] || CFG.KEY_COLOR;
   const [er, eg, eb] = [
@@ -908,6 +953,7 @@ function fullyUnlock(enemy) {
   ];
   addFx('explosion', enemy.x, enemy.y, { color: hex, maxAge: 55 });
   playUnlockSound();
+  if (navigator.vibrate) navigator.vibrate([20, 10, 10]);
   screenFlash = { r: er, g: eg, b: eb, alpha: 0.22 };
   // Drop all component color keys for fusion enemies
   const dropColors = enemy.fusion ? enemy.colors : [enemy.color];
@@ -920,16 +966,14 @@ function fullyUnlock(enemy) {
     const PURP_R = 150;
     addFx('bomb', enemy.x, enemy.y, { maxAge: 35, color: COLOR_HEX['purple'] });
     if (player.invincible <= 0 && Math.hypot(player.x - enemy.x, player.y - enemy.y) < PURP_R) {
-      player.hp = Math.max(0, player.hp - 1);
-      player.invincible = CFG.HIT_COOLDOWN;
+      const purpMods = getMods();
+      player.hp = Math.max(0, player.hp - (1 + Math.max(0, purpMods.incomingDmgBonus)));
+      player.invincible = Math.max(30, CFG.HIT_COOLDOWN + purpMods.invincibleBonus + purpMods.invincibleMalus);
       player.hitFlash   = 22;
       addFx('dmg', player.x, player.y, { maxAge: 25 });
       if (player.hp <= 0) {
         player.hp = 0;
-        lastResult = { score, killCount, maxCombo, gameTime, inscriptions: activeInscriptions.length };
-        state = State.GAMEOVER;
-        connectedEnemy = null;
-        setTimeout(resetGame, 3500);
+        triggerGameOver();
         return;
       }
     }
@@ -956,7 +1000,35 @@ function emergencyEscape(dx, dy, dt) {
   ghostTimer     = 0;
 }
 
-let lastResult = null; // stores result snapshot for GAMEOVER screen
+let lastResult   = null; // stores result snapshot for GAMEOVER screen
+
+function triggerGameOver() {
+  lastResult = { score, killCount, maxCombo, gameTime, inscriptions: activeInscriptions.length };
+  if (killCount > highScore) { highScore = killCount; }
+  totalKills += killCount;
+  persistSave();
+  state = State.GAMEOVER;
+  connectedEnemy = null;
+  setTimeout(resetGame, 3500);
+}
+let highScore    = 0;    // best kill count this session (persisted to localStorage)
+let totalKills   = 0;    // cumulative kills across sessions
+
+function loadSave() {
+  try {
+    const s = JSON.parse(localStorage.getItem('croqkey_save') || '{}');
+    highScore  = s.highScore  || 0;
+    totalKills = s.totalKills || 0;
+  } catch (e) { /* ignore */ }
+}
+
+function persistSave() {
+  try {
+    localStorage.setItem('croqkey_save', JSON.stringify({ highScore, totalKills }));
+  } catch (e) { /* ignore */ }
+}
+
+loadSave();
 
 function resetGame() {
   enemies.length = 0;
@@ -968,7 +1040,7 @@ function resetGame() {
   beamFlash = uiShake = ghostTimer = 0;
   screenFlash = null; connectedEnemy = null;
   selectedKeyColor = 'red';
-  combo = 0; maxCombo = 0; killCount = 0;
+  combo = 0; maxCombo = 0; killCount = 0; comboMissCount = 0;
   lastResult = null;
   activeInscriptions.length = 0;
   inscriptionOrbs.length    = 0;
@@ -988,8 +1060,15 @@ function update() {
   gameTime = frame / 60;
   const sf = state === State.CONNECTED ? CFG.SLOW_FACTOR : 1.0;
 
-  // Player
+  // Player — apply speed mod cap
   if (state === State.IDLE) {
+    const movMod = getMods().speedMult;
+    const maxSpd = CFG.MAX_SPEED * Math.max(0.1, 1 + movMod);
+    const spd    = Math.hypot(player.vx, player.vy);
+    if (spd > maxSpd) {
+      player.vx = (player.vx / spd) * maxSpd;
+      player.vy = (player.vy / spd) * maxSpd;
+    }
     player.x += player.vx;
     player.y += player.vy;
     player.vx *= CFG.FRICTION;
@@ -1008,8 +1087,9 @@ function update() {
     e.x += e.vx * sf * slowMult;
     e.y += e.vy * sf * slowMult;
     const a = Math.atan2(player.y - e.y, player.x - e.x);
-    e.vx += Math.cos(a) * 0.04;
-    e.vy += Math.sin(a) * 0.04;
+    const accelBase = 0.04 * (1 + getMods().enemyAccelMult);
+    e.vx += Math.cos(a) * accelBase;
+    e.vy += Math.sin(a) * accelBase;
     const spd = Math.hypot(e.vx, e.vy);
     if (spd > e.maxSpd) { e.vx = (e.vx / spd) * e.maxSpd; e.vy = (e.vy / spd) * e.maxSpd; }
     if (e.crackShake > 0) e.crackShake--;
@@ -1034,16 +1114,29 @@ function update() {
     if (player.invincible <= 0) {
       const d = Math.hypot(player.x - e.x, player.y - e.y);
       if (d < player.r + e.r) {
-        player.hp--;
-        player.invincible = CFG.HIT_COOLDOWN;
+        const hitMods  = getMods();
+        const dmgTaken = 1 + Math.max(0, hitMods.incomingDmgBonus);
+        const invTime  = Math.max(30, CFG.HIT_COOLDOWN + hitMods.invincibleBonus + hitMods.invincibleMalus);
+        player.hp     -= dmgTaken;
+        player.invincible = invTime;
         player.hitFlash   = 22;
+        combo = 0; comboMissCount = 0; // hit breaks combo
         addFx('dmg', player.x, player.y, { maxAge: 25 });
+
+        // B-X3: auto-slow on hit
+        if (hitMods.autoSlowOnHit > 0) {
+          for (const enemy of enemies) {
+            if (!enemy.alive) continue;
+            if (Math.hypot(enemy.x - player.x, enemy.y - player.y) < 300) {
+              enemy.slowTimer = Math.max(enemy.slowTimer || 0, 180);
+            }
+          }
+          addFx('slowAura', player.x, player.y, { maxAge: 25, color: COLOR_HEX['blue'] });
+        }
+
         if (player.hp <= 0) {
           player.hp = 0;
-          lastResult = { score, killCount, maxCombo, gameTime, inscriptions: activeInscriptions.length };
-          state = State.GAMEOVER;
-          connectedEnemy = null;
-          setTimeout(resetGame, 3500);
+          triggerGameOver();
         }
       }
     }
@@ -1102,8 +1195,15 @@ function render() {
   ctx.fillStyle = '#f8f7f4';
   ctx.fillRect(0, 0, w, h);
 
-  // ── World transform ──
+  // ── World transform (with optional D-V1 zoom-in) ──
   ctx.save();
+  const zoomMod = getMods().cameraZoom; // 0=normal, 0.35=narrow view
+  if (zoomMod > 0) {
+    const scale = 1 - zoomMod * 0.4; // at max zoom 0.35 → scale 0.86
+    ctx.translate(w / 2, h / 2);
+    ctx.scale(scale, scale);
+    ctx.translate(-w / 2, -h / 2);
+  }
   ctx.translate(-cam.x, -cam.y);
 
   drawInfiniteGrid();
@@ -1490,49 +1590,60 @@ function renderCircularUI(t) {
   // Direction guides: show only as many arrows as hits remaining to kill
   if (connectedEnemy) {
     const q    = connectedEnemy.angleQueue;
+    const uiMods  = getMods();
     const hasKey  = keyInventory[activeKeyColor()] > 0;
     const dmg     = (hasKey && activeKeyColor() === connectedEnemy.color) ? 2 : 1;
     const hitsLeft = Math.ceil(connectedEnemy.hp / dmg);
-    const show    = Math.min(hitsLeft, 3);
+    const maxShow  = Math.max(1, 3 - Math.round(uiMods.predictArrowSub));
+    const show    = Math.min(hitsLeft, maxShow);
+    const dynamicTol = CFG.UNLOCK_TOLERANCE + uiMods.flickTolerance;
     const ghostAlpha = ghostTimer > 0 ? Math.min(ghostTimer / 25, 1) : 0.55;
 
     if (show >= 3 && q.length > 2) {
       ctx.globalAlpha = 0.25;
-      renderDirectionGuide(cx, cy, q[2], keyCol, 2);
+      renderDirectionGuide(cx, cy, q[2], keyCol, 2, dynamicTol);
     }
     if (show >= 2 && q.length > 1) {
       ctx.globalAlpha = 0.52;
-      renderDirectionGuide(cx, cy, q[1], keyCol, 3);
+      renderDirectionGuide(cx, cy, q[1], keyCol, 3, dynamicTol);
     }
     ctx.globalAlpha = ghostAlpha;
-    renderDirectionGuide(cx, cy, q[0], keyCol, 5);
+    renderDirectionGuide(cx, cy, q[0], keyCol, 5, dynamicTol);
     ctx.globalAlpha = 1;
   }
 
-  ctx.fillStyle = 'rgba(110,108,103,0.55)';
-  ctx.font = '11px -apple-system, "Helvetica Neue", sans-serif'; ctx.textAlign = 'center';
-  ctx.fillText('円内フリック: 解錠  円外フリック: 離脱＆移動', cx, cy + CFG.INNER_R + 22);
+  // cannotEscape indicator
+  if (getMods().cannotEscape > 0) {
+    ctx.fillStyle = 'rgba(232,69,60,0.7)';
+    ctx.font = 'bold 10px -apple-system, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('⛓ 離脱不可', cx, cy + CFG.INNER_R + 22);
+  } else {
+    ctx.fillStyle = 'rgba(110,108,103,0.55)';
+    ctx.font = '11px -apple-system, "Helvetica Neue", sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('円内フリック: 解錠  円外フリック: 離脱＆移動', cx, cy + CFG.INNER_R + 22);
+  }
 
   ctx.restore();
 }
 
-// lineW: stem line width (also scales arrowhead)
-function renderDirectionGuide(cx, cy, angle, color, lineW = 4) {
+// lineW: stem line width (also scales arrowhead); tol: effective angle tolerance in radians
+function renderDirectionGuide(cx, cy, angle, color, lineW = 4, tol = CFG.UNLOCK_TOLERANCE) {
   const stemStart = CFG.INNER_R * 0.25;
   const stemEnd   = CFG.OUTER_R * 0.88;
   const ex = cx + Math.cos(angle) * stemEnd;
   const ey = cy + Math.sin(angle) * stemEnd;
 
-  // Tolerance fan (±45°)
+  // Tolerance fan — sized by actual unlock tolerance so player sees the real window
+  const safeTol = Math.max(5 * Math.PI / 180, tol);
   const baseAlpha = ctx.globalAlpha;
   ctx.save();
   ctx.globalAlpha = baseAlpha * 0.38;
   ctx.fillStyle = color;
   ctx.beginPath();
-  ctx.moveTo(cx + Math.cos(angle - CFG.UNLOCK_TOLERANCE) * CFG.INNER_R,
-             cy + Math.sin(angle - CFG.UNLOCK_TOLERANCE) * CFG.INNER_R);
-  ctx.arc(cx, cy, CFG.OUTER_R * 0.85, angle - CFG.UNLOCK_TOLERANCE, angle + CFG.UNLOCK_TOLERANCE);
-  ctx.arc(cx, cy, CFG.INNER_R,        angle + CFG.UNLOCK_TOLERANCE, angle - CFG.UNLOCK_TOLERANCE, true);
+  ctx.moveTo(cx + Math.cos(angle - safeTol) * CFG.INNER_R,
+             cy + Math.sin(angle - safeTol) * CFG.INNER_R);
+  ctx.arc(cx, cy, CFG.OUTER_R * 0.85, angle - safeTol, angle + safeTol);
+  ctx.arc(cx, cy, CFG.INNER_R,        angle + safeTol, angle - safeTol, true);
   ctx.closePath();
   ctx.fill();
   ctx.restore();
@@ -1673,6 +1784,10 @@ function renderHUD(w, h) {
 
   ctx.fillStyle = '#999'; ctx.font = 'bold 13px -apple-system, monospace'; ctx.textAlign = 'right';
   ctx.fillText(`解錠 ${score}`, w - 16, 32);
+  if (highScore > 0) {
+    ctx.fillStyle = '#bbb'; ctx.font = '10px -apple-system, monospace'; ctx.textAlign = 'right';
+    ctx.fillText(`BEST ${highScore}`, w - 16, 46);
+  }
   ctx.fillStyle = '#bbb'; ctx.font = '11px -apple-system, monospace'; ctx.textAlign = 'left';
   ctx.fillText(`${Math.floor(gameTime)}s`, 16, 30);
 
@@ -1720,7 +1835,7 @@ function renderGameOver(w, h) {
   const cy = h / 2;
 
   // Card background
-  const cardW = Math.min(w - 48, 320), cardH = 270;
+  const cardW = Math.min(w - 48, 320), cardH = 310;
   const cardX = cx - cardW / 2, cardY = cy - cardH / 2;
   ctx.save();
   ctx.fillStyle = 'rgba(255,255,255,0.06)';
@@ -1745,22 +1860,32 @@ function renderGameOver(w, h) {
   ctx.moveTo(cardX + 24, cardY + 58); ctx.lineTo(cardX + cardW - 24, cardY + 58);
   ctx.stroke();
 
+  // New high score banner
+  const isNewBest = res.killCount >= highScore && res.killCount > 0;
+  if (isNewBest) {
+    ctx.fillStyle = '#ddb830';
+    ctx.font = 'bold 13px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('★ NEW BEST ★', cx, cardY + 66);
+  }
+
   // Stats
   const stats = [
     { label: '生存時間',    value: `${Math.floor(res.gameTime)}秒` },
-    { label: '解錠数',      value: `${res.killCount}` },
+    { label: '解錠数',      value: `${res.killCount}`, highlight: isNewBest },
     { label: 'MAXコンボ',  value: `${res.maxCombo}` },
     { label: '取得刻印',    value: `${res.inscriptions || 0}個` },
+    { label: 'ハイスコア',  value: `${highScore}`, dim: true },
   ];
   const rowH = 42;
   stats.forEach((s, i) => {
-    const ry = cardY + 80 + i * rowH;
-    ctx.fillStyle = 'rgba(255,255,255,0.38)';
+    const ry = cardY + 88 + i * rowH;
+    ctx.fillStyle = s.dim ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.38)';
     ctx.font = '12px -apple-system, sans-serif';
     ctx.textAlign = 'left';
     ctx.fillText(s.label, cardX + 32, ry);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 22px -apple-system, monospace';
+    ctx.fillStyle = s.highlight ? '#ddb830' : s.dim ? 'rgba(255,255,255,0.45)' : '#ffffff';
+    ctx.font = `bold ${s.dim ? 16 : 22}px -apple-system, monospace`;
     ctx.textAlign = 'right';
     ctx.fillText(s.value, cardX + cardW - 32, ry);
   });
