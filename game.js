@@ -331,6 +331,7 @@ function applyDraftChoice(index) {
   if (index >= 0 && index < draftChoices.length) {
     const ins = draftChoices[index];
     activeInscriptions.push(ins);
+    playDraftPickSound(ins.rarity);
     if (navigator.vibrate) {
       navigator.vibrate(ins.rarity === RARITY.EPIC ? [30, 20, 30] : ins.rarity === RARITY.RARE ? [20] : [10]);
     }
@@ -339,6 +340,7 @@ function applyDraftChoice(index) {
     let minSlot = keySlots[0];
     for (const s of keySlots) { if (s.dur < minSlot.dur) minSlot = s; }
     if (minSlot) minSlot.dur = CFG.KEY_DROP_DUR * 3;
+    playDraftSkipSound();
   }
   draftChoices = [];
   state = State.IDLE;
@@ -661,50 +663,74 @@ function makeClickNode(ac, freq, duration) {
   return { node: bpf, src };
 }
 
-// hitsLanded: hits on this enemy so far after this blow (1 = first hit)
-// maxHp: enemy's max HP — determines pitch ceiling
-function playHitSound(hitsLanded, maxHp, crit) {
+// hitsLanded: hits so far after this blow (1=first); combo: current combo count; depleted: no key dur
+function playHitSound(hitsLanded, maxHp, crit, combo = 0, depleted = false) {
   const a   = ac();
   const now = a.currentTime;
 
-  // Pitch rises from hit 1 → maxHp. Map to two octaves (220–880 Hz)
+  // Pitch: 220→880 Hz as HP is depleted (t → 1 when nearly dead)
   const t        = Math.min((hitsLanded - 1) / Math.max(maxHp - 1, 1), 1);
   const baseFreq = 220 * Math.pow(4, t * 0.85);
 
+  const masterVol = depleted ? 0.18 : (crit ? 0.52 : 0.32);
   const master = a.createGain();
-  master.gain.setValueAtTime(crit ? 0.5 : 0.32, now);
+  master.gain.setValueAtTime(masterVol, now);
   master.connect(a.destination);
 
   // ── カチッ: noise burst through bandpass ──
   const { node: clickOut, src: clickSrc } = makeClickNode(a, baseFreq * 6, 0.03);
   const clickGain = a.createGain();
-  clickGain.gain.setValueAtTime(0.9, now);
-  clickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.028);
+  clickGain.gain.setValueAtTime(depleted ? 0.35 : 0.9, now);
+  clickGain.gain.exponentialRampToValueAtTime(0.001, now + (depleted ? 0.012 : 0.028));
   clickOut.connect(clickGain);
   clickGain.connect(master);
   clickSrc.start(now);
   clickSrc.stop(now + 0.035);
 
   // ── シャーン: metallic bell partials (1, 2.756, 5.404) ──
+  // 枯渇時はローパスで音を曇らせる
+  const lpf = depleted ? (() => {
+    const f = a.createBiquadFilter();
+    f.type = 'lowpass'; f.frequency.value = 650; f.Q.value = 0.8;
+    f.connect(master); return f;
+  })() : null;
+  const bellDest = lpf || master;
+
   const partials = [1, 2.756, 5.404];
   const amps     = [1.0, 0.45, 0.22];
-  const decay    = 0.38 + t * 0.55 + (crit ? 0.25 : 0);
+  const decay    = depleted ? 0.10 : (0.38 + t * 0.55 + (crit ? 0.28 : 0));
 
   for (let i = 0; i < partials.length; i++) {
     const osc  = a.createOscillator();
     const gain = a.createGain();
     osc.type = 'sine';
     osc.frequency.setValueAtTime(baseFreq * partials[i], now);
-    gain.gain.setValueAtTime(amps[i] * 0.55, now);
+    gain.gain.setValueAtTime(amps[i] * (depleted ? 0.30 : 0.55), now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + decay);
     osc.connect(gain);
-    gain.connect(master);
+    gain.connect(bellDest);
     osc.start(now);
     osc.stop(now + decay + 0.05);
   }
+
+  // ── コンボ輝き: 高域シマーがコンボに連動して増す ──
+  if (!depleted && combo > 2) {
+    const shimAmp  = Math.min(0.20, 0.04 * Math.sqrt(combo - 2));
+    const shimFreq = 4200 + t * 3500;
+    const shimOsc  = a.createOscillator();
+    const shimGain = a.createGain();
+    shimOsc.type = 'sine';
+    shimOsc.frequency.setValueAtTime(shimFreq, now);
+    shimGain.gain.setValueAtTime(shimAmp, now);
+    shimGain.gain.exponentialRampToValueAtTime(0.001, now + 0.20);
+    shimOsc.connect(shimGain);
+    shimGain.connect(master);
+    shimOsc.start(now);
+    shimOsc.stop(now + 0.24);
+  }
 }
 
-// Full unlock: bright shimmering chord
+// 撃破音: Aメジャーコードのシマー (A5–C#6–E6–A6 アルペジオ + 高域シマー)
 function playUnlockSound() {
   const a   = ac();
   const now = a.currentTime;
@@ -713,31 +739,43 @@ function playUnlockSound() {
   master.gain.setValueAtTime(0.45, now);
   master.connect(a.destination);
 
-  // Chord: A5 + C#6 + E6 + A6
+  // Chord arpeggio: A5 → C#6 → E6 → A6
   const freqs = [880, 1108.73, 1318.51, 1760];
-  const amps  = [0.9, 0.75, 0.65, 0.5];
+  const amps  = [0.9, 0.75, 0.65, 0.50];
   for (let i = 0; i < freqs.length; i++) {
+    const t0   = now + i * 0.018;
     const osc  = a.createOscillator();
     const gain = a.createGain();
     osc.type = 'sine';
-    osc.frequency.setValueAtTime(freqs[i], now);
-    gain.gain.setValueAtTime(amps[i], now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 1.6);
-    osc.connect(gain);
-    gain.connect(master);
-    osc.start(now);
-    osc.stop(now + 1.7);
+    osc.frequency.setValueAtTime(freqs[i], t0);
+    gain.gain.setValueAtTime(amps[i], t0);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + 1.65);
+    osc.connect(gain); gain.connect(master);
+    osc.start(t0); osc.stop(t0 + 1.75);
   }
 
-  // Click transient on top
-  const { node: clickOut, src: clickSrc } = makeClickNode(a, 4000, 0.02);
+  // 高域シマー (6–8 kHz でトレモロ)
+  const shimOsc  = a.createOscillator();
+  const shimGain = a.createGain();
+  const shimMod  = a.createOscillator();
+  const shimModG = a.createGain();
+  shimOsc.type  = 'sine'; shimOsc.frequency.value  = 7040;
+  shimMod.type  = 'sine'; shimMod.frequency.value  = 18;
+  shimModG.gain.value = 0.10;
+  shimGain.gain.setValueAtTime(0.18, now);
+  shimGain.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
+  shimMod.connect(shimModG); shimModG.connect(shimGain.gain);
+  shimOsc.connect(shimGain); shimGain.connect(master);
+  shimOsc.start(now); shimOsc.stop(now + 0.6);
+  shimMod.start(now); shimMod.stop(now + 0.6);
+
+  // Click transient
+  const { node: co, src: cs } = makeClickNode(a, 4000, 0.02);
   const cg = a.createGain();
   cg.gain.setValueAtTime(1.2, now);
   cg.gain.exponentialRampToValueAtTime(0.001, now + 0.018);
-  clickOut.connect(cg);
-  cg.connect(master);
-  clickSrc.start(now);
-  clickSrc.stop(now + 0.025);
+  co.connect(cg); cg.connect(master);
+  cs.start(now); cs.stop(now + 0.025);
 }
 
 // Soft triangle tone: slot A selected
@@ -797,6 +835,79 @@ function playFusionCompleteSound() {
   cg.gain.exponentialRampToValueAtTime(0.001, now + 0.02);
   co.connect(cg); cg.connect(master);
   cs.start(now); cs.stop(now + 0.025);
+}
+
+// 刻印取得音: レアリティに応じたアクセント
+function playDraftPickSound(rarity) {
+  const a = ac();
+  const now = a.currentTime;
+  const master = a.createGain();
+  master.gain.setValueAtTime(0.38, now);
+  master.connect(a.destination);
+
+  if (rarity === RARITY.EPIC) {
+    // C5→E5→G5→C6 アルペジオ + 高域シマー
+    [523.25, 659.26, 783.99, 1046.5].forEach((f, i) => {
+      const osc = a.createOscillator(), g = a.createGain(), t0 = now + i * 0.052;
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(f, t0);
+      g.gain.setValueAtTime(0.70, t0);
+      g.gain.exponentialRampToValueAtTime(0.001, t0 + 1.3);
+      osc.connect(g); g.connect(master);
+      osc.start(t0); osc.stop(t0 + 1.4);
+    });
+    const shimO = a.createOscillator(), shimG = a.createGain();
+    shimO.type = 'triangle'; shimO.frequency.value = 5200;
+    shimG.gain.setValueAtTime(0.28, now);
+    shimG.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+    shimO.connect(shimG); shimG.connect(master);
+    shimO.start(now); shimO.stop(now + 0.35);
+    const { node: co, src: cs } = makeClickNode(a, 5000, 0.02);
+    const cg = a.createGain(); cg.gain.setValueAtTime(1.0, now);
+    cg.gain.exponentialRampToValueAtTime(0.001, now + 0.015);
+    co.connect(cg); cg.connect(master); cs.start(now); cs.stop(now + 0.02);
+  } else if (rarity === RARITY.RARE) {
+    // C5→E5 上昇2音
+    [[523.25, 0], [659.26, 0.09]].forEach(([f, delay]) => {
+      const osc = a.createOscillator(), g = a.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(f, now + delay);
+      g.gain.setValueAtTime(0.75, now + delay);
+      g.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.60);
+      osc.connect(g); g.connect(master);
+      osc.start(now + delay); osc.stop(now + delay + 0.65);
+    });
+    const { node: co, src: cs } = makeClickNode(a, 3500, 0.02);
+    const cg = a.createGain(); cg.gain.setValueAtTime(0.7, now);
+    cg.gain.exponentialRampToValueAtTime(0.001, now + 0.015);
+    co.connect(cg); cg.connect(master); cs.start(now); cs.stop(now + 0.02);
+  } else {
+    // Common: E5 単発ピン
+    const osc = a.createOscillator(), g = a.createGain();
+    osc.type = 'sine'; osc.frequency.value = 659.26;
+    g.gain.setValueAtTime(0.65, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.32);
+    osc.connect(g); g.connect(master);
+    osc.start(now); osc.stop(now + 0.37);
+  }
+}
+
+// 見送り音: 柔らかい下降2音
+function playDraftSkipSound() {
+  const a = ac();
+  const now = a.currentTime;
+  const master = a.createGain();
+  master.gain.setValueAtTime(0.22, now);
+  master.connect(a.destination);
+  [[392, 0], [329.63, 0.10]].forEach(([f, delay]) => {
+    const osc = a.createOscillator(), g = a.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(f, now + delay);
+    g.gain.setValueAtTime(0.7, now + delay);
+    g.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.28);
+    osc.connect(g); g.connect(master);
+    osc.start(now + delay); osc.stop(now + delay + 0.33);
+  });
 }
 
 // ══════════════════════════════════════════════
@@ -1049,7 +1160,7 @@ function tryUnlock(dx, dy) {
       fullyUnlock(connectedEnemy);
     } else {
       const hitsLanded = connectedEnemy.maxHp - connectedEnemy.hp;
-      playHitSound(hitsLanded, connectedEnemy.maxHp, crit);
+      playHitSound(hitsLanded, connectedEnemy.maxHp, crit, combo, !hasKey);
       ghostTimer = CFG.GHOST_FRAMES;
     }
   } else {
