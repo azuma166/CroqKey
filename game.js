@@ -101,6 +101,8 @@ const BUFF_CATALOG = {
     { id:'B-M3', label: '耐久上限 +20%',         key: 'durPoolMult',           val: 0.20 },
     { id:'B-M4', label: '刻印頻度 +20%',         key: 'orbFreqMult',           val: 0.20 },
     { id:'B-V1', label: '視野拡大 +10%',         key: 'cameraZoom',            val: -0.10 },
+    { id:'B-A1', label: '移動速度 +10%',         key: 'speedMult',             val: 0.10 },
+    { id:'B-A2', label: '鍵取得範囲 +25%',       key: 'keyPickRadiusMult',     val: 0.25 },
   ],
   medium: [
     { id:'B-R1', label: '赤ダメ +30%',           key: 'redDmgMult',            val: 1.30 },
@@ -129,6 +131,8 @@ const BUFF_CATALOG = {
     { id:'B-M3', label: '耐久上限 +40%',          key: 'durPoolMult',           val: 0.40 },
     { id:'B-M4', label: '刻印頻度 +40%',          key: 'orbFreqMult',           val: 0.40 },
     { id:'B-V1', label: '視野拡大 +20%',          key: 'cameraZoom',            val: -0.20 },
+    { id:'B-A1', label: '移動速度 +20%',          key: 'speedMult',             val: 0.20 },
+    { id:'B-A2', label: '鍵取得範囲 +50%',        key: 'keyPickRadiusMult',     val: 0.50 },
     { id:'B-X3', label: '被弾時 自動スロー',      key: 'autoSlowOnHit',         val: 1    },
   ],
   heavy: [
@@ -158,6 +162,8 @@ const BUFF_CATALOG = {
     { id:'B-M3', label: '耐久上限 +70%',          key: 'durPoolMult',           val: 0.70 },
     { id:'B-M4', label: '刻印頻度 +70%',          key: 'orbFreqMult',           val: 0.70 },
     { id:'B-V1', label: '視野拡大 +35%',          key: 'cameraZoom',            val: -0.35 },
+    { id:'B-A1', label: '移動速度 +35%',          key: 'speedMult',             val: 0.35 },
+    { id:'B-A2', label: '鍵取得範囲 +100%',       key: 'keyPickRadiusMult',     val: 1.00 },
     { id:'B-X1', label: '赤→全敵クリット',       key: 'redCritAll',            val: 1    },
     { id:'B-X2', label: '枯渇でも効果発動',       key: 'depletedEffects',       val: 1    },
     { id:'B-X4', label: '紫撃破でボム連鎖',       key: 'bombChainOnKill',       val: 1    },
@@ -296,6 +302,7 @@ function getMods() {
     maxHpMalus:             0,
     stunOnHit:              0,
     comboDrainAccel:        0,
+    keyPickRadiusMult:      0,
   };
   for (const ins of activeInscriptions) {
     applyInscriptionMod(m, ins.buff);
@@ -370,6 +377,7 @@ function applyInscriptionMod(m, entry) {
     case 'maxHpMalus':             m.maxHpMalus             += v; break;
     case 'stunOnHit':              m.stunOnHit              += v; break;
     case 'comboDrainAccel':        m.comboDrainAccel        += v; break;
+    case 'keyPickRadiusMult':      m.keyPickRadiusMult      += v; break;
   }
 }
 
@@ -773,10 +781,11 @@ function dropKey(x, y, color) {
 }
 
 function updateKeyDrops() {
+  const pickR = KEY_PICK_RADIUS * (1 + getMods().keyPickRadiusMult);
   for (let i = keyDrops.length - 1; i >= 0; i--) {
     const k = keyDrops[i];
     k.age++;
-    if (Math.hypot(player.x - k.x, player.y - k.y) < KEY_PICK_RADIUS) {
+    if (Math.hypot(player.x - k.x, player.y - k.y) < pickR) {
       collectKey(k.color);
       addFx('keyCollect', k.x, k.y, { color: COLOR_HEX[k.color], maxAge: 22 });
       keyDrops.splice(i, 1);
@@ -1770,11 +1779,11 @@ function update() {
   {
     const mods0    = getMods();
     const alive    = enemies.filter(e => e.alive).length;
-    const boostCount = enemyBoostStacks * 2;
+    const boostCount = enemyBoostStacks * 7;
     const baseMax  = CFG.ENEMY_COUNT + Math.floor(gameTime / 30) + Math.round(mods0.enemyCountBonus) + boostCount;
     const maxCount = Math.min(CFG.ENEMY_COUNT_MAX + Math.round(mods0.enemyCountBonus) + boostCount, baseMax);
     const baseInterval = Math.max(180, CFG.SPAWN_INTERVAL - Math.floor(gameTime / 20) * 40);
-    const interval = Math.max(60, Math.round(baseInterval * (1 + mods0.spawnIntervalMult - enemyBoostStacks * 0.12)));
+    const interval = Math.max(30, Math.round(baseInterval * (1 + mods0.spawnIntervalMult - enemyBoostStacks * 0.50)));
     spawnTimer++;
     if (spawnTimer >= interval && alive < maxCount) {
       spawnEnemy();
@@ -2506,11 +2515,13 @@ function renderHUD(w, h) {
   const barW = Math.min(w * 0.52, 260), barH = 6;
   const bx = (w - barW) / 2, by = 16;
   ctx.fillStyle = '#dbd9d2'; roundRect(bx, by, barW, barH, 3);
-  const hpRatio = player.hp / CFG.PLAYER_HP_MAX;
+  const hudMods = getMods();
+  const maxHp = Math.max(1, CFG.PLAYER_HP_MAX + hudMods.maxHpBonus - hudMods.maxHpMalus);
+  const hpRatio = player.hp / maxHp;
   const hpCol = hpRatio > 0.5 ? '#3db86a' : hpRatio > 0.25 ? '#ddb830' : '#e8453c';
   if (barW * hpRatio > 6) { ctx.fillStyle = hpCol; roundRect(bx, by, barW * hpRatio, barH, 3); }
   ctx.fillStyle = '#888'; ctx.font = '10px -apple-system, monospace'; ctx.textAlign = 'left';
-  ctx.fillText(`HP ${player.hp} / ${CFG.PLAYER_HP_MAX}`, bx, by + barH + 13);
+  ctx.fillText(`HP ${player.hp} / ${maxHp}`, bx, by + barH + 13);
 
   ctx.fillStyle = '#999'; ctx.font = 'bold 13px -apple-system, monospace'; ctx.textAlign = 'right';
   ctx.fillText(`解錠 ${score}`, w - 16, 32);
@@ -2526,7 +2537,7 @@ function renderHUD(w, h) {
   ctx.fillText(`敵 ×${alive}`, 16, 44);
   if (enemyBoostStacks > 0) {
     ctx.fillStyle = '#ff8844'; ctx.font = 'bold 10px -apple-system, monospace'; ctx.textAlign = 'left';
-    ctx.fillText(`敵増 +${enemyBoostStacks * 2}  速 +${Math.round(enemyBoostStacks * 12)}%`, 16, 58);
+    ctx.fillText(`敵増 +${enemyBoostStacks * 7}  速 +${Math.round(enemyBoostStacks * 50)}%`, 16, 58);
   }
 
   // Combo display (top center below HP)
