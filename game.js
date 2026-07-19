@@ -766,7 +766,8 @@ const KEY_BOB_AMP      = 3.5;   // pixel amplitude of bob
 const KEY_BOB_SPEED    = 2.2;   // radians/s
 
 function allColorsFused() {
-  return COLORS.every(c => keySlots.some(s => s.colors.includes(c)));
+  // True only when a single slot contains all 5 colors (fusion is pointless)
+  return keySlots.some(s => COLORS.every(c => s.colors.includes(c)));
 }
 
 function dropKey(x, y, color) {
