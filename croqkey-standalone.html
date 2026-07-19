@@ -76,6 +76,7 @@ const ORB_UNLOCK_KILLS = 100; // first orb after 100 kills, then every 10
 const ORB_INTERVAL_KILLS = 10;
 const FUSION_INS_UNLOCK   = 200; // first fusion inscription orb after 200 kills
 const FUSION_INS_INTERVAL = 100; // one fusion inscription orb every 100 kills after that
+const INFECTION_KILLS     = 1000; // infection inscription spawns once at 1000 kills
 
 // Per-color effect for fusion inscriptions (buff only, no debuff)
 const FUSION_COLOR_EFFECT = {
@@ -453,6 +454,17 @@ function spawnEnemyBoostOrb() {
   });
 }
 
+function spawnInfectionOrb() {
+  const angle = Math.random() * Math.PI * 2;
+  const dist  = 500 + Math.random() * 300;
+  inscriptionOrbs.push({
+    type:  'infection',
+    x:     player.x + Math.cos(angle) * dist,
+    y:     player.y + Math.sin(angle) * dist,
+    pulse: 0,
+  });
+}
+
 function generateFusionInscription() {
   const w = colorWeather();
   let pool = COLORS.filter(c => w[c] > 0.05);
@@ -469,17 +481,28 @@ function openDraft(orbIndex) {
   const orb = inscriptionOrbs[orbIndex];
   inscriptionOrbs.splice(orbIndex, 1);
   if (orb.type === 'enemy_boost') {
-    // Instant effect: increment enemy boost stacks
     enemyBoostStacks++;
     playEnemyBoostKeySound();
     addFx('explosion', player.x, player.y, { color: '#ff4400', maxAge: 35 });
     screenFlash = { r: 220, g: 60, b: 20, alpha: 0.18 };
+  } else if (orb.type === 'infection') {
+    infectedMode = true;
+    playInfectionSound();
+    screenFlash = { r: 60, g: 0, b: 100, alpha: 0.30 };
   } else if (orb.type === 'fusion') {
-    // Fusion orb → key-merge selection UI
     fusionSlotA = -1;
     state = State.FUSION_SELECT;
   } else {
-    draftChoices = [generateInscription(), generateInscription(), generateInscription()];
+    if (infectedMode) {
+      // Each choice is a bundle of 5 random inscriptions
+      draftChoices = [
+        Array.from({ length: 5 }, () => generateInscription()),
+        Array.from({ length: 5 }, () => generateInscription()),
+        Array.from({ length: 5 }, () => generateInscription()),
+      ];
+    } else {
+      draftChoices = [generateInscription(), generateInscription(), generateInscription()];
+    }
     state = State.DRAFT;
   }
 }
@@ -500,11 +523,19 @@ function fuseSlots(idxA, idxB) {
 
 function applyDraftChoice(index) {
   if (index >= 0 && index < draftChoices.length) {
-    const ins = draftChoices[index];
-    activeInscriptions.push(ins);
-    playDraftPickSound(ins.rarity);
-    if (navigator.vibrate) {
-      navigator.vibrate(ins.rarity === RARITY.EPIC ? [30, 20, 30] : ins.rarity === RARITY.RARE ? [20] : [10]);
+    const choice = draftChoices[index];
+    if (Array.isArray(choice)) {
+      // Infected mode: apply all 5 inscriptions in the bundle
+      for (const ins of choice) activeInscriptions.push(ins);
+      const rarities = [RARITY.EPIC, RARITY.RARE, RARITY.COMMON];
+      const topRarity = rarities.find(r => choice.some(ins => ins.rarity === r)) || RARITY.COMMON;
+      playDraftPickSound(topRarity);
+    } else {
+      activeInscriptions.push(choice);
+      playDraftPickSound(choice.rarity);
+      if (navigator.vibrate) {
+        navigator.vibrate(choice.rarity === RARITY.EPIC ? [30, 20, 30] : choice.rarity === RARITY.RARE ? [20] : [10]);
+      }
     }
   } else {
     // Skip: refill least-durable slot
@@ -604,6 +635,8 @@ let maxCombo       = 0;
 let killCount      = 0;
 let comboMissCount = 0; // counts forgiven misses this combo chain
 let enemyBoostStacks = 0; // accumulated from enemy-boost key pickups (all-fused state)
+let infectedMode = false;     // true after 刻印感染 orb is collected
+let infectionOrbSpawned = false; // one-shot flag
 let untouchedStreak = 0; // B-X5: kills without taking damage
 let comboIdleFrames = 0; // D-R3: frames in IDLE without hitting
 let player_stunTimer = 0; // D-S5: input-freeze frames after hit (legacy; use player.stunTimer)
@@ -1113,6 +1146,35 @@ function playKeyPickupSound(color) {
   cs.start(now); cs.stop(now + 0.018);
 }
 
+function playInfectionSound() {
+  const a = ac();
+  const now = a.currentTime;
+  const master = a.createGain();
+  master.gain.setValueAtTime(0.35, now);
+  master.connect(a.destination);
+  // Deep rumble sweep
+  [[80, 40, 0.6], [120, 55, 0.4], [200, 90, 0.25]].forEach(([f0, f1, amp], i) => {
+    const osc = a.createOscillator(), g = a.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(f0, now + i * 0.05);
+    osc.frequency.exponentialRampToValueAtTime(f1, now + 0.6 + i * 0.05);
+    g.gain.setValueAtTime(amp, now + i * 0.05);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.8 + i * 0.05);
+    osc.connect(g); g.connect(master);
+    osc.start(now + i * 0.05); osc.stop(now + 0.9);
+  });
+  // Eerie high shimmer
+  const shimmer = a.createOscillator(), sg = a.createGain();
+  shimmer.type = 'sine';
+  shimmer.frequency.setValueAtTime(1200, now);
+  shimmer.frequency.linearRampToValueAtTime(800, now + 1.0);
+  sg.gain.setValueAtTime(0.0, now);
+  sg.gain.linearRampToValueAtTime(0.18, now + 0.15);
+  sg.gain.exponentialRampToValueAtTime(0.001, now + 1.1);
+  shimmer.connect(sg); sg.connect(master);
+  shimmer.start(now); shimmer.stop(now + 1.2);
+}
+
 function playEnemyBoostKeySound() {
   const a = ac();
   const now = a.currentTime;
@@ -1532,6 +1594,12 @@ function fullyUnlock(enemy) {
     }
   }
 
+  // Infection inscription — one-shot at 1000 kills
+  if (!infectionOrbSpawned && killCount >= INFECTION_KILLS) {
+    infectionOrbSpawned = true;
+    spawnInfectionOrb();
+  }
+
   // B-S2: heal on kill chance
   const mods = getMods();
   if (mods.healOnKillChance > 0 && Math.random() < mods.healOnKillChance) {
@@ -1665,6 +1733,7 @@ function resetGame() {
   fusionSlotA = -1;
   fusionSlotB = -1;
   score = 0; frame = 0; gameTime = 0; spawnTimer = 0; enemyBoostStacks = 0;
+  infectedMode = false; infectionOrbSpawned = false;
   beamFlash = uiShake = ghostTimer = 0;
   screenFlash = null; connectedEnemy = null;
   combo = 0; maxCombo = 0; killCount = 0; comboMissCount = 0;
@@ -2682,7 +2751,42 @@ function renderInscriptionOrbs(t) {
     ctx.save();
     ctx.translate(orb.x, orb.y);
 
-    if (orb.type === 'enemy_boost') {
+    if (orb.type === 'infection') {
+      // Pulsing dark-violet corrupted orb
+      const r = 24 + pulse * 6;
+      // Outer glow rings
+      [r + 8, r, r - 8].forEach((rr, i) => {
+        ctx.globalAlpha = (0.12 + pulse * 0.08) / (i + 1);
+        ctx.strokeStyle = '#8800cc'; ctx.lineWidth = 4 - i;
+        ctx.beginPath(); ctx.arc(0, 0, rr, 0, Math.PI * 2); ctx.stroke();
+      });
+      // Spinning dashed ring
+      ctx.setLineDash([5, 3]); ctx.lineDashOffset = t * -60;
+      ctx.globalAlpha = 0.55 + pulse * 0.3;
+      ctx.strokeStyle = '#cc44ff'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(0, 0, r - 4, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+      // Dark corrupted diamond
+      ctx.globalAlpha = 0.9 + pulse * 0.1;
+      ctx.fillStyle = '#2a0044';
+      ctx.strokeStyle = '#bb33ff'; ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.moveTo(0, -13); ctx.lineTo(10, 0); ctx.lineTo(0, 13); ctx.lineTo(-10, 0);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+      // Inner glow
+      ctx.globalAlpha = 0.6 + pulse * 0.3;
+      ctx.fillStyle = '#cc44ff';
+      ctx.beginPath();
+      ctx.moveTo(0, -6); ctx.lineTo(4, 0); ctx.lineTo(0, 2); ctx.lineTo(-4, 0);
+      ctx.closePath(); ctx.fill();
+      // "感" kanji hint
+      ctx.globalAlpha = 0.7 + pulse * 0.2;
+      ctx.fillStyle = '#ffccff';
+      ctx.font = 'bold 10px -apple-system, sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('感', 0, 0);
+      ctx.textBaseline = 'alphabetic';
+    } else if (orb.type === 'enemy_boost') {
       // Angry pulsing red ring + warning diamond
       const r = 22 + pulse * 5;
       ctx.globalAlpha = 0.22 + pulse * 0.15;
@@ -2769,7 +2873,8 @@ function renderInscriptionEdgeIndicators() {
     const { x, y } = screenEdgePoint(angle, margin);
     const isFusion     = orb.type === 'fusion';
     const isEnemyBoost = orb.type === 'enemy_boost';
-    const col = isEnemyBoost ? '#ff4400' : isFusion ? '#ffcc44' : RARITY_COLOR[orb.rarity];
+    const isInfection  = orb.type === 'infection';
+    const col = isInfection ? '#cc44ff' : isEnemyBoost ? '#ff4400' : isFusion ? '#ffcc44' : RARITY_COLOR[orb.rarity];
     const pulse     = 0.72 + 0.28 * Math.sin(t * 3.8 + (orb.pulse || 0) * 0.05);
 
     ctx.save();
@@ -2801,7 +2906,7 @@ function renderInscriptionEdgeIndicators() {
     ctx.fillStyle = col;
     ctx.font = `bold 8px -apple-system, sans-serif`;
     ctx.textAlign = 'center';
-    ctx.fillText(isEnemyBoost ? '敵増' : isFusion ? '融合' : '刻印', 0, 22);
+    ctx.fillText(isInfection ? '感染' : isEnemyBoost ? '敵増' : isFusion ? '融合' : '刻印', 0, 22);
 
     // Small direction tick pointing toward orb (outside the badge)
     ctx.globalAlpha = 0.65 * pulse;
@@ -2827,6 +2932,9 @@ function renderInscriptionEdgeIndicators() {
 
 function renderDraft(w, h, t) {
   if (draftIsFusion) { renderFusionDraft(w, h, t); return; }
+  if (infectedMode && draftChoices.length > 0 && Array.isArray(draftChoices[0])) {
+    renderInfectedDraft(w, h, t); return;
+  }
 
   // Dim overlay
   ctx.fillStyle = 'rgba(8, 8, 14, 0.72)';
@@ -2914,6 +3022,103 @@ function renderDraft(w, h, t) {
   // Active inscriptions count
   if (activeInscriptions.length > 0) {
     ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.font = '11px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`刻印 ${activeInscriptions.length}個 取得済み`, w / 2, h - 40);
+  }
+}
+
+function renderInfectedDraft(w, h, t) {
+  // Dark violet overlay
+  ctx.fillStyle = 'rgba(10, 0, 22, 0.82)';
+  ctx.fillRect(0, 0, w, h);
+
+  // Title
+  ctx.fillStyle = '#cc44ff';
+  ctx.font = 'bold 18px -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('刻印感染 — 5刻印を選択', w / 2, h / 2 - 195);
+
+  const bounds = draftCardBounds(w, h);
+  const cardBounds = bounds.slice(0, 3);
+  const skipBound  = bounds[3];
+
+  cardBounds.forEach((b, i) => {
+    if (i >= draftChoices.length) return;
+    const bundle = draftChoices[i]; // array of 5 inscriptions
+
+    // Card bg — taller to fit 5 items; reuse bound but clip internally
+    ctx.fillStyle   = 'rgba(40,0,60,0.55)';
+    ctx.strokeStyle = '#9922cc';
+    ctx.lineWidth   = 1.5;
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(b.x, b.y, b.w, b.h, 10);
+    ctx.fill(); ctx.stroke();
+    ctx.restore();
+
+    // Infected badge
+    ctx.fillStyle = '#cc44ff';
+    ctx.font = 'bold 10px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('感染 ×5', b.x + b.w / 2, b.y + 16);
+
+    // List the 5 inscriptions compactly
+    const lineH = (b.h - 40) / 5;
+    bundle.forEach((ins, j) => {
+      const ry = b.y + 28 + j * lineH;
+      const rcol = RARITY_COLOR[ins.rarity];
+
+      // Rarity dot
+      ctx.fillStyle = rcol;
+      ctx.beginPath();
+      ctx.arc(b.x + 8, ry + lineH / 2 - 2, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Buff
+      ctx.fillStyle = '#aaffaa';
+      ctx.font = '9px -apple-system, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(`▲ ${ins.buff.label}`, b.x + 16, ry + lineH / 2 - 3);
+
+      // Debuff
+      ctx.fillStyle = '#ffaaaa';
+      ctx.fillText(`▼ ${ins.debuff.label}`, b.x + 16, ry + lineH / 2 + 9);
+
+      // Divider (except after last)
+      if (j < bundle.length - 1) {
+        ctx.strokeStyle = 'rgba(150,50,200,0.3)';
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(b.x + 6, ry + lineH);
+        ctx.lineTo(b.x + b.w - 6, ry + lineH);
+        ctx.stroke();
+      }
+    });
+
+    // Tap hint
+    ctx.fillStyle = 'rgba(255,255,255,0.22)';
+    ctx.font = '9px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('タップで取得', b.x + b.w / 2, b.y + b.h - 6);
+  });
+
+  // Skip button
+  ctx.fillStyle   = 'rgba(255,255,255,0.06)';
+  ctx.strokeStyle = 'rgba(200,100,255,0.3)';
+  ctx.lineWidth   = 1;
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(skipBound.x, skipBound.y, skipBound.w, skipBound.h, 8);
+  ctx.fill(); ctx.stroke();
+  ctx.restore();
+  ctx.fillStyle = 'rgba(255,255,255,0.55)';
+  ctx.font = '13px -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('見送る（最少耐久の鍵を補充）', skipBound.x + skipBound.w / 2, skipBound.y + skipBound.h / 2 + 4);
+
+  if (activeInscriptions.length > 0) {
+    ctx.fillStyle = 'rgba(200,100,255,0.35)';
     ctx.font = '11px -apple-system, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText(`刻印 ${activeInscriptions.length}個 取得済み`, w / 2, h - 40);
