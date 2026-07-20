@@ -1296,6 +1296,10 @@ function fusionConfirmBounds(w, h) {
 }
 
 function pointerDown(sx, sy) {
+  if (state === State.GAMEOVER) {
+    gameOverHoldStart = performance.now();
+    return;
+  }
   // Pause button (available during IDLE and CONNECTED)
   if (state === State.IDLE || state === State.CONNECTED) {
     const pb = pauseButtonBounds();
@@ -1371,6 +1375,7 @@ function pointerDown(sx, sy) {
 }
 
 function pointerUp(sx, sy) {
+  if (state === State.GAMEOVER) { gameOverHoldStart = 0; return; }
   if (!touch) return;
   const dx   = sx - touch.sx;
   const dy   = sy - touch.sy;
@@ -1742,7 +1747,9 @@ function emergencyEscape(dx, dy, dt) {
   ghostTimer     = 0;
 }
 
-let lastResult   = null; // stores result snapshot for GAMEOVER screen
+let lastResult        = null; // stores result snapshot for GAMEOVER screen
+let gameOverHoldStart = 0;   // performance.now() when hold begins; 0 = not holding
+const GAMEOVER_HOLD_MS = 800;
 
 function triggerGameOver() {
   lastResult = { score, killCount, maxCombo, gameTime, inscriptions: activeInscriptions.length };
@@ -1751,7 +1758,7 @@ function triggerGameOver() {
   persistSave();
   state = State.GAMEOVER;
   connectedEnemy = null;
-  setTimeout(resetGame, 3500);
+  gameOverHoldStart = 0;
 }
 let highScore    = 0;    // best kill count this session (persisted to localStorage)
 let totalKills   = 0;    // cumulative kills across sessions
@@ -1811,7 +1818,14 @@ function resetGame() {
 //  UPDATE
 // ══════════════════════════════════════════════
 function update() {
-  if (state === State.GAMEOVER || state === State.DRAFT || state === State.PAUSED || state === State.FUSION_SELECT) return;
+  if (state === State.GAMEOVER) {
+    if (gameOverHoldStart > 0 && performance.now() - gameOverHoldStart >= GAMEOVER_HOLD_MS) {
+      gameOverHoldStart = 0;
+      resetGame();
+    }
+    return;
+  }
+  if (state === State.DRAFT || state === State.PAUSED || state === State.FUSION_SELECT) return;
   frame++;
   gameTime = frame / 60;
   const sf = state === State.CONNECTED ? CFG.SLOW_FACTOR : 1.0;
@@ -2793,11 +2807,25 @@ function renderGameOver(w, h) {
     ctx.fillText(s.value, cardX + cardW - 32, ry);
   });
 
-  // Restart hint
-  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  // Hold-to-restart indicator
+  const holdFrac = gameOverHoldStart > 0
+    ? Math.min(1, (performance.now() - gameOverHoldStart) / GAMEOVER_HOLD_MS)
+    : 0;
+  const hintY = cardY + cardH - 36;
+  // Progress arc
+  if (holdFrac > 0) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(cx, hintY - 4, 10, -Math.PI / 2, -Math.PI / 2 + holdFrac * Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+  ctx.fillStyle = holdFrac > 0 ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.3)';
   ctx.font = '12px -apple-system, sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('まもなく再スタート…', cx, cardY + cardH - 16);
+  ctx.fillText('長押しで再スタート', cx, cardY + cardH - 14);
 }
 
 // ══════════════════════════════════════════════
