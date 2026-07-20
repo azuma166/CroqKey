@@ -2051,6 +2051,12 @@ function renderEffectsWorld(t) {
       if (e.crit) {
         ctx.globalAlpha = (1 - p) * 0.3; ctx.fillStyle = e.color;
         ctx.beginPath(); ctx.arc(e.x, e.y, p * sz * 0.6, 0, Math.PI * 2); ctx.fill();
+        // "Crit" label — floats upward
+        ctx.globalAlpha = (1 - p) * 0.95;
+        ctx.fillStyle = '#ffe566';
+        ctx.font = 'bold 11px -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Crit', e.x, e.y - 18 - p * 28);
       }
     }
     if (e.type === 'escape') {
