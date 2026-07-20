@@ -1178,29 +1178,29 @@ function playSlotSelectSound() {
 function playKeyDepletedSound() {
   const a = ac(), now = a.currentTime;
   const master = a.createGain();
-  master.gain.setValueAtTime(0.45, now);
+  master.gain.setValueAtTime(0.9, now);
   master.connect(a.destination);
   const lp = a.createBiquadFilter();
   lp.type = 'lowpass';
-  lp.frequency.setValueAtTime(400, now);
-  lp.frequency.exponentialRampToValueAtTime(180, now + 0.22);
+  lp.frequency.setValueAtTime(500, now);
+  lp.frequency.exponentialRampToValueAtTime(200, now + 0.25);
   lp.connect(master);
-  [[220, 0.9], [330, 0.4]].forEach(([f, amp]) => {
+  [[220, 1.0], [330, 0.6], [440, 0.3]].forEach(([f, amp]) => {
     const osc = a.createOscillator(), g = a.createGain();
     osc.type = 'triangle';
     osc.frequency.setValueAtTime(f, now);
-    osc.frequency.linearRampToValueAtTime(f * 0.6, now + 0.25);
+    osc.frequency.linearRampToValueAtTime(f * 0.55, now + 0.28);
     g.gain.setValueAtTime(amp, now);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.30);
     osc.connect(g); g.connect(lp);
-    osc.start(now); osc.stop(now + 0.32);
+    osc.start(now); osc.stop(now + 0.35);
   });
-  const { node: cn, src: cs } = makeClickNode(a, 300, 0.018);
+  const { node: cn, src: cs } = makeClickNode(a, 300, 0.025);
   const cg = a.createGain();
-  cg.gain.setValueAtTime(0.8, now);
-  cg.gain.exponentialRampToValueAtTime(0.001, now + 0.020);
+  cg.gain.setValueAtTime(1.2, now);
+  cg.gain.exponentialRampToValueAtTime(0.001, now + 0.022);
   cn.connect(cg); cg.connect(lp);
-  cs.start(now); cs.stop(now + 0.025);
+  cs.start(now); cs.stop(now + 0.030);
 }
 
 function playDraftSkipSound() {
