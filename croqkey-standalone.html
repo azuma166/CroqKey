@@ -672,7 +672,6 @@ let orbAnnounce       = null;  // { label, sub?, color, age, maxAge, slowFrames 
 let phantomOrbSpawned = false;
 let phantomOrbPickedUp = false;
 let phantomMode       = false;
-let phantomEnemies    = [];   // enemies converted to orbs during phantom mode
 let infectionOrbSpawned = false; // one-shot flag
 let untouchedStreak = 0; // B-X5: kills without taking damage
 let comboIdleFrames = 0; // D-R3: frames in IDLE without hitting
@@ -1862,11 +1861,11 @@ function enterPhantomMode() {
   phantomMode = true;
   playPhantomEnterSound();
   screenFlash = { r: 200, g: 255, b: 240, alpha: 0.40 };
-  // Convert all alive enemies to phantom orbs
+  // Convert all alive enemies to enemy_boost orbs (same as existing ones)
   for (const e of enemies) {
     if (!e.alive) continue;
     e.alive = false;
-    phantomEnemies.push({ x: e.x, y: e.y, pulse: 0, alive: true });
+    inscriptionOrbs.push({ type: 'enemy_boost', x: e.x, y: e.y, pulse: 0, fromPhantom: true });
   }
   orbAnnounce = { label: '幻影', color: '#88ffdd', age: 0, maxAge: 70, slowFrames: 0 };
 }
@@ -1874,13 +1873,13 @@ function enterPhantomMode() {
 function exitPhantomMode() {
   phantomMode = false;
   playPhantomExitSound();
-  for (const pe of phantomEnemies) {
-    if (pe.alive) {
-      addFx('explosion', pe.x, pe.y, { color: '#88ffdd', maxAge: 45 });
-      pe.alive = false;
+  // Remove and explode all phantom-created enemy_boost orbs
+  for (let i = inscriptionOrbs.length - 1; i >= 0; i--) {
+    if (inscriptionOrbs[i].fromPhantom) {
+      addFx('explosion', inscriptionOrbs[i].x, inscriptionOrbs[i].y, { color: '#ff4400', maxAge: 45 });
+      inscriptionOrbs.splice(i, 1);
     }
   }
-  phantomEnemies.length = 0;
   screenFlash = { r: 200, g: 255, b: 240, alpha: 0.35 };
   orbAnnounce = { label: '幻影解除', color: '#aacccc', age: 0, maxAge: 75, slowFrames: 0 };
 }
@@ -1948,7 +1947,7 @@ function resetGame() {
   fusionSlotB = -1;
   score = 0; frame = 0; gameTime = 0; spawnTimer = 0; enemyBoostStacks = 0;
   infectedMode = false; infectionOrbSpawned = false; orbAnnounce = null;
-  phantomMode = false; phantomOrbSpawned = false; phantomOrbPickedUp = false; phantomEnemies.length = 0;
+  phantomMode = false; phantomOrbSpawned = false; phantomOrbPickedUp = false;
   beamFlash = uiShake = ghostTimer = 0;
   screenFlash = null; connectedEnemy = null;
   combo = 0; maxCombo = 0; killCount = 0; comboMissCount = 0;
@@ -2107,21 +2106,6 @@ function update() {
     }
   }
 
-  // Phantom enemy orb updates & collection
-  if (phantomMode) {
-    for (let i = phantomEnemies.length - 1; i >= 0; i--) {
-      const pe = phantomEnemies[i];
-      if (!pe.alive) { phantomEnemies.splice(i, 1); continue; }
-      pe.pulse = (pe.pulse || 0) + 1;
-      if (Math.hypot(player.x - pe.x, player.y - pe.y) < 32) {
-        pe.alive = false;
-        enemyBoostStacks++;
-        playPhantomOrbCollectSound();
-        addFx('explosion', pe.x, pe.y, { color: '#88ffdd', maxAge: 35 });
-        phantomEnemies.splice(i, 1);
-      }
-    }
-  }
 
   updateKeyDrops();
 
@@ -2176,7 +2160,6 @@ function render() {
   renderEffectsWorld(t);
   renderKeyDrops(t);
   renderInscriptionOrbs(t);
-  if (phantomMode) renderPhantomEnemies(t);
   if (state === State.CONNECTED && connectedEnemy) renderBeam(t);
   for (const e of enemies) if (e.alive) renderEnemy(e, t);
   renderPlayer(t);
@@ -2187,8 +2170,8 @@ function render() {
   if (phantomMode) {
     const hue = Math.round((t * 25) % 360);
     ctx.save();
-    ctx.globalAlpha = 0.18;
-    ctx.fillStyle = `hsl(${hue}, 85%, 55%)`;
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = `hsl(${hue}, 90%, 55%)`;
     ctx.fillRect(0, 0, w, h);
     ctx.restore();
   }
@@ -2210,23 +2193,6 @@ function render() {
   if (state === State.FUSION_SELECT) renderFusionSelect(w, h, t);
 }
 
-function renderPhantomEnemies(t) {
-  // Minimal rendering: single circle + label per orb, no save/restore/lineDash
-  ctx.font = 'bold 10px sans-serif';
-  ctx.textAlign = 'center';
-  for (const pe of phantomEnemies) {
-    if (!pe.alive) continue;
-    const pulse = Math.sin(t * 4 + (pe.pulse || 0) * 0.1) * 0.4 + 0.6;
-    const r = 14;
-    ctx.globalAlpha = pulse * 0.9;
-    ctx.fillStyle = '#88ffdd';
-    ctx.beginPath(); ctx.arc(pe.x, pe.y, r, 0, Math.PI * 2); ctx.fill();
-    ctx.globalAlpha = 0.85;
-    ctx.fillStyle = '#003322';
-    ctx.fillText('敵増', pe.x, pe.y + 4);
-  }
-  ctx.globalAlpha = 1;
-}
 
 function renderOrbAnnounce(w, h) {
   const a = orbAnnounce;
