@@ -2278,12 +2278,6 @@ function renderEnemy(e, t) {
   ctx.lineTo( ksw, ky + ksh);      ctx.lineTo( ksw, ky + kr * 0.7);
   ctx.stroke();
 
-  // Color dots above enemy (one per component for fusion) — pushed up to avoid pip clash
-  allColors.forEach((c, ci) => {
-    const ox = (ci - (allColors.length - 1) / 2) * 8;
-    ctx.fillStyle = colorVisible ? COLOR_HEX[c] : '#555555';
-    ctx.beginPath(); ctx.arc(ox, -e.r - 13, 3, 0, Math.PI * 2); ctx.fill();
-  });
 
   // HP pips — start from bottom (π/2) for symmetric layout, clear of color dots at top
   for (let i = 0; i < e.maxHp; i++) {
