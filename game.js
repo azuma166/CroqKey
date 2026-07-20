@@ -566,7 +566,7 @@ function draftCardBounds(w, h) {
 }
 
 function handleDraftTap(sx, sy) {
-  if (performance.now() - draftOpenedAt < 500) return; // 0.5s tap lockout
+  if (performance.now() - draftOpenedAt < 700) return; // 0.7s tap lockout
   const bounds = draftCardBounds(W(), H());
   for (const b of bounds) {
     if (sx >= b.x && sx <= b.x + b.w && sy >= b.y && sy <= b.y + b.h) {
