@@ -1143,27 +1143,29 @@ function playKeyPickupSound(color) {
 }
 
 function playDamageSound() {
-  const a = ac();
-  const now = a.currentTime;
-  const master = a.createGain();
-  master.gain.setValueAtTime(0.55, now);
-  master.connect(a.destination);
-  [[280, 1.0], [140, 0.5]].forEach(([f, amp]) => {
-    const osc = a.createOscillator(), g = a.createGain();
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(f, now);
-    osc.frequency.linearRampToValueAtTime(f * 0.45, now + 0.22);
-    g.gain.setValueAtTime(amp, now);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
-    osc.connect(g); g.connect(master);
-    osc.start(now); osc.stop(now + 0.28);
-  });
-  const { node: cn, src: cs } = makeClickNode(a, 600, 0.02);
-  const cg = a.createGain();
-  cg.gain.setValueAtTime(1.0, now);
-  cg.gain.exponentialRampToValueAtTime(0.001, now + 0.018);
-  cn.connect(cg); cg.connect(master);
-  cs.start(now); cs.stop(now + 0.025);
+  setTimeout(() => {
+    const a = ac();
+    const now = a.currentTime;
+    const master = a.createGain();
+    master.gain.setValueAtTime(0.55, now);
+    master.connect(a.destination);
+    [[280, 1.0], [140, 0.5]].forEach(([f, amp]) => {
+      const osc = a.createOscillator(), g = a.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(f, now);
+      osc.frequency.linearRampToValueAtTime(f * 0.45, now + 0.22);
+      g.gain.setValueAtTime(amp, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+      osc.connect(g); g.connect(master);
+      osc.start(now); osc.stop(now + 0.28);
+    });
+    const { node: cn, src: cs } = makeClickNode(a, 600, 0.02);
+    const cg = a.createGain();
+    cg.gain.setValueAtTime(1.0, now);
+    cg.gain.exponentialRampToValueAtTime(0.001, now + 0.018);
+    cn.connect(cg); cg.connect(master);
+    cs.start(now); cs.stop(now + 0.025);
+  }, 0);
 }
 
 function playInfectionSound() {
