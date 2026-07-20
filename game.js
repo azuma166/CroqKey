@@ -825,7 +825,6 @@ function dropKey(x, y, color) {
 }
 
 function updateKeyDrops() {
-  if (_damageSoundPending) { _damageSoundPending = false; _actualDamageSound(); }
   const pickR = KEY_PICK_RADIUS * (1 + getMods().keyPickRadiusMult);
   for (let i = keyDrops.length - 1; i >= 0; i--) {
     const k = keyDrops[i];
@@ -858,7 +857,6 @@ function collectKey(color) {
 //  AUDIO  (Web Audio API — procedural synthesis)
 // ══════════════════════════════════════════════
 let _ac = null;
-let _damageSoundPending = false;
 function ac() {
   if (!_ac) _ac = new (window.AudioContext || window.webkitAudioContext)();
   if (_ac.state === 'suspended') _ac.resume();
@@ -1144,7 +1142,7 @@ function playKeyPickupSound(color) {
   cs.start(now); cs.stop(now + 0.018);
 }
 
-function _actualDamageSound() {
+function playDamageSound() {
   const a = ac();
   const now = a.currentTime;
   const master = a.createGain();
@@ -1167,7 +1165,6 @@ function _actualDamageSound() {
   cn.connect(cg); cg.connect(master);
   cs.start(now); cs.stop(now + 0.025);
 }
-function playDamageSound() { _damageSoundPending = true; }
 
 function playInfectionSound() {
   const a = ac();
@@ -1265,7 +1262,6 @@ function fusionConfirmBounds(w, h) {
 }
 
 function pointerDown(sx, sy) {
-  ac(); // ensure AudioContext is running (iOS requires gesture context to stay active)
   // Pause button (available during IDLE and CONNECTED)
   if (state === State.IDLE || state === State.CONNECTED) {
     const pb = pauseButtonBounds();
