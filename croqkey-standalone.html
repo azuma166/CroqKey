@@ -523,6 +523,7 @@ function fuseSlots(idxA, idxB) {
 
 function applyDraftChoice(index) {
   if (index >= 0 && index < draftChoices.length) {
+    const oldMaxHp = Math.max(1, CFG.PLAYER_HP_MAX + getMods().maxHpBonus - getMods().maxHpMalus);
     const choice = draftChoices[index];
     if (Array.isArray(choice)) {
       // Infected mode: apply all 5 inscriptions in the bundle
@@ -537,6 +538,16 @@ function applyDraftChoice(index) {
         navigator.vibrate(choice.rarity === RARITY.EPIC ? [30, 20, 30] : choice.rarity === RARITY.RARE ? [20] : [10]);
       }
     }
+    // Adjust player HP to reflect maxHp changes from the inscription
+    const newMaxHp = Math.max(1, CFG.PLAYER_HP_MAX + getMods().maxHpBonus - getMods().maxHpMalus);
+    if (newMaxHp > oldMaxHp) {
+      // B-S1 buff: grant the extra HP immediately
+      player.hp = Math.min(player.hp + (newMaxHp - oldMaxHp), newMaxHp);
+    } else if (newMaxHp < oldMaxHp) {
+      // D-S1 debuff: cap current HP at new max
+      player.hp = Math.min(player.hp, newMaxHp);
+    }
+    player.hp = Math.max(1, player.hp);
   } else {
     // Skip: refill least-durable slot
     let minSlot = keySlots[0];
@@ -1421,7 +1432,7 @@ function tryUnlock(dx, dy) {
     const mismatchCrit = !colorMatch && !redCritAll && mods.mismatchCritChance > 0 && Math.random() < mods.mismatchCritChance;
     const crit       = (hasKey || mods.depletedEffects > 0) && (colorMatch || redCritAll || mismatchCrit);
 
-    const effectiveCoeff = CFG.COMBO_COEFF + mods.comboCoeff;
+    const effectiveCoeff = Math.max(0, CFG.COMBO_COEFF + mods.comboCoeff);
     const comboMult = 1 + effectiveCoeff * Math.sqrt(combo);
     const isRed = slotColors.includes('red');
     const redDmgBonus = isRed ? mods.redDmgMult : 1;
@@ -1496,7 +1507,7 @@ function applyKeyEffect(keyCol, target) {
 
   if (keyCol === 'blue') {
     const SLOW_R = 220 * (1 + mods.blueSlowRadMult) * rangeMult;
-    const slowDur = Math.round(180 + mods.blueSlowFactor * 180 + mods.blueSlowDuration);
+    const slowDur = Math.max(1, Math.round(180 + mods.blueSlowFactor * 180 + mods.blueSlowDuration));
     for (const e of enemies) {
       if (!e.alive) continue;
       if (Math.hypot(e.x - target.x, e.y - target.y) < SLOW_R) {
@@ -1534,7 +1545,7 @@ function applyKeyEffect(keyCol, target) {
   } else if (keyCol === 'green') {
     const healAmt = Math.max(0, 1 + mods.greenHealBonus + mods.greenHealMalus);
     if (healAmt > 0) {
-      const maxHp = CFG.PLAYER_HP_MAX + mods.maxHpBonus - mods.maxHpMalus;
+      const maxHp = Math.max(1, CFG.PLAYER_HP_MAX + mods.maxHpBonus - mods.maxHpMalus);
       player.hp = Math.min(maxHp, player.hp + healAmt);
       addFx('heal', player.x, player.y, { maxAge: 35 });
     }
@@ -1603,7 +1614,7 @@ function fullyUnlock(enemy) {
   // B-S2: heal on kill chance
   const mods = getMods();
   if (mods.healOnKillChance > 0 && Math.random() < mods.healOnKillChance) {
-    player.hp = Math.min(CFG.PLAYER_HP_MAX + mods.maxHpBonus - mods.maxHpMalus, player.hp + 1);
+    player.hp = Math.min(Math.max(1, CFG.PLAYER_HP_MAX + mods.maxHpBonus - mods.maxHpMalus), player.hp + 1);
     addFx('heal', player.x, player.y, { maxAge: 25 });
   }
   // B-M2: bonus durability on kill for the active slot
@@ -2357,7 +2368,7 @@ function renderCircularUI(t) {
     const hitsLeft = Math.ceil(connectedEnemy.hp / dmg);
     const maxShow  = Math.max(1, 3 - Math.round(uiMods.predictArrowSub));
     const show    = Math.min(hitsLeft, maxShow);
-    const dynamicTol = CFG.UNLOCK_TOLERANCE + uiMods.flickTolerance;
+    const dynamicTol = Math.max(5 * Math.PI / 180, CFG.UNLOCK_TOLERANCE + uiMods.flickTolerance);
     const ghostAlpha = ghostTimer > 0 ? Math.min(ghostTimer / 25, 1) : 0.55;
     const arrowColors = _slot.dur > 0 && _slot.colors.length > 1 ? _slot.colors.map(c => COLOR_HEX[c]) : null;
 
