@@ -948,6 +948,34 @@ function playHitSound(hitsLanded, maxHp, crit, combo = 0, depleted = false) {
     osc.stop(now + decay + 0.05);
   }
 
+  // ── クリティカル専用: 上昇スイープ + 高域リン ──
+  if (crit && !depleted) {
+    // 上昇スイープ（シャーッと鳴る）
+    const sweepOsc  = a.createOscillator();
+    const sweepGain = a.createGain();
+    sweepOsc.type = 'sawtooth';
+    sweepOsc.frequency.setValueAtTime(baseFreq * 1.5, now);
+    sweepOsc.frequency.exponentialRampToValueAtTime(baseFreq * 7, now + 0.13);
+    sweepGain.gain.setValueAtTime(0.30, now);
+    sweepGain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+    sweepOsc.connect(sweepGain);
+    sweepGain.connect(master);
+    sweepOsc.start(now);
+    sweepOsc.stop(now + 0.20);
+
+    // 高域リン（余韻のベル）
+    const ringOsc  = a.createOscillator();
+    const ringGain = a.createGain();
+    ringOsc.type = 'sine';
+    ringOsc.frequency.setValueAtTime(1760 + baseFreq * 0.5, now);
+    ringGain.gain.setValueAtTime(0.38, now);
+    ringGain.gain.exponentialRampToValueAtTime(0.001, now + 0.60);
+    ringOsc.connect(ringGain);
+    ringGain.connect(master);
+    ringOsc.start(now);
+    ringOsc.stop(now + 0.65);
+  }
+
   // ── コンボ輝き: 高域シマーがコンボに連動して増す ──
   if (!depleted && combo > 2) {
     const shimAmp  = Math.min(0.20, 0.04 * Math.sqrt(combo - 2));
