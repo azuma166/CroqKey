@@ -507,7 +507,7 @@ function openDraft(orbIndex) {
     phantomOrbPickedUp = true;
     playPhantomPickupSound();
     screenFlash = { r: 120, g: 255, b: 220, alpha: 0.22 };
-    orbAnnounce = { label: '幻影刻印', sub: '長押しで幻影切替', color: '#88ffdd', age: 0, maxAge: 220, slowFrames: 90 };
+    orbAnnounce = { label: '幻影刻印', sub: '長押しで幻影切替', color: '#88ffdd', age: 0, maxAge: 220, slowFrames: 0 };
   } else if (orb.type === 'fusion') {
     fusionSlotA = -1;
     state = State.FUSION_SELECT;
@@ -2158,7 +2158,7 @@ function render() {
   const w = W(), h = H();
   const t = performance.now() / 1000;
 
-  ctx.fillStyle = '#f8f7f4';
+  ctx.fillStyle = phantomMode ? '#08100e' : '#f8f7f4';
   ctx.fillRect(0, 0, w, h);
 
   // ── World transform (camera zoom: positive=zoom in/narrow, negative=zoom out/wide) ──
@@ -2181,23 +2181,14 @@ function render() {
   for (const e of enemies) if (e.alive) renderEnemy(e, t);
   renderPlayer(t);
 
-  // Phantom invert: difference composite over the world (fast — single fillRect)
-  if (phantomMode) {
-    ctx.globalCompositeOperation = 'difference';
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(cam.x, cam.y, w, h);
-    ctx.globalCompositeOperation = 'source-over';
-  }
-
   ctx.restore();
 
-  // Phantom hue tint overlay (screen-space, 2 fillRect calls — very cheap)
+  // Phantom hue tint — plain alpha fillRect, no compositing mode (fastest possible)
   if (phantomMode) {
-    const hue = (t * 25) % 360;
+    const hue = Math.round((t * 25) % 360);
     ctx.save();
-    ctx.globalCompositeOperation = 'screen';
-    ctx.globalAlpha = 0.22;
-    ctx.fillStyle = `hsl(${hue.toFixed(0)}, 100%, 55%)`;
+    ctx.globalAlpha = 0.18;
+    ctx.fillStyle = `hsl(${hue}, 85%, 55%)`;
     ctx.fillRect(0, 0, w, h);
     ctx.restore();
   }
