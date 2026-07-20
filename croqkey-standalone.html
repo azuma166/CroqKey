@@ -78,6 +78,8 @@ const ORB_INTERVAL_KILLS = 10;
 const FUSION_INS_UNLOCK   = 200; // first fusion inscription orb after 200 kills
 const FUSION_INS_INTERVAL = 100; // one fusion inscription orb every 100 kills after that
 const INFECTION_KILLS     = 1000; // infection inscription spawns once at 1000 kills
+const PHANTOM_KILLS       = 1500; // phantom inscription spawns once at 1500 kills
+const PHANTOM_HOLD_MS     = 700;  // hold duration to toggle phantom mode
 
 // Per-color effect for fusion inscriptions (buff only, no debuff)
 const FUSION_COLOR_EFFECT = {
@@ -458,6 +460,12 @@ function spawnEnemyBoostOrb() {
   });
 }
 
+function spawnPhantomOrb() {
+  const angle = Math.random() * Math.PI * 2;
+  const dist  = 500 + Math.random() * 300;
+  inscriptionOrbs.push({ type: 'phantom', x: player.x + Math.cos(angle) * dist, y: player.y + Math.sin(angle) * dist, pulse: 0 });
+}
+
 function spawnInfectionOrb() {
   const angle = Math.random() * Math.PI * 2;
   const dist  = 500 + Math.random() * 300;
@@ -495,6 +503,11 @@ function openDraft(orbIndex) {
     playInfectionSound();
     screenFlash = { r: 60, g: 0, b: 100, alpha: 0.30 };
     orbAnnounce = { label: '刻印感染', color: '#cc44ff', age: 0, maxAge: 110, slowFrames: 70 };
+  } else if (orb.type === 'phantom') {
+    phantomOrbPickedUp = true;
+    playPhantomPickupSound();
+    screenFlash = { r: 120, g: 255, b: 220, alpha: 0.22 };
+    orbAnnounce = { label: '幻影刻印', sub: '長押しで幻影モードに', color: '#88ffdd', age: 0, maxAge: 220, slowFrames: 90 };
   } else if (orb.type === 'fusion') {
     fusionSlotA = -1;
     state = State.FUSION_SELECT;
@@ -655,7 +668,11 @@ let killCount      = 0;
 let comboMissCount = 0; // counts forgiven misses this combo chain
 let enemyBoostStacks = 0; // accumulated from enemy-boost key pickups (all-fused state)
 let infectedMode = false;     // true after 刻印感染 orb is collected
-let orbAnnounce  = null;      // { label, color, age, maxAge } — full-screen pickup announcement
+let orbAnnounce       = null;  // { label, sub?, color, age, maxAge, slowFrames } — full-screen pickup announcement
+let phantomOrbSpawned = false;
+let phantomOrbPickedUp = false;
+let phantomMode       = false;
+let phantomEnemies    = [];   // enemies converted to orbs during phantom mode
 let infectionOrbSpawned = false; // one-shot flag
 let untouchedStreak = 0; // B-X5: kills without taking damage
 let comboIdleFrames = 0; // D-R3: frames in IDLE without hitting
@@ -1219,6 +1236,83 @@ function playDamageSound() {
   cs.start(now); cs.stop(now + 0.025);
 }
 
+function playPhantomPickupSound() {
+  const a = ac(), now = a.currentTime;
+  const master = a.createGain();
+  master.gain.setValueAtTime(0.30, now);
+  master.connect(a.destination);
+  // Ethereal rising chime
+  [[880, 1320, 0.5], [1320, 2200, 0.3], [2200, 3300, 0.15]].forEach(([f0, f1, amp], i) => {
+    const osc = a.createOscillator(), g = a.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(f0, now + i * 0.08);
+    osc.frequency.linearRampToValueAtTime(f1, now + 0.5 + i * 0.08);
+    g.gain.setValueAtTime(amp, now + i * 0.08);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.9 + i * 0.08);
+    osc.connect(g); g.connect(master);
+    osc.start(now + i * 0.08); osc.stop(now + 1.0);
+  });
+}
+
+function playPhantomEnterSound() {
+  const a = ac(), now = a.currentTime;
+  const master = a.createGain();
+  master.gain.setValueAtTime(0.45, now);
+  master.connect(a.destination);
+  // Broadband crack — multiple staggered noise bursts
+  for (let i = 0; i < 5; i++) {
+    const { node: n, src: s } = makeClickNode(a, 300 + i * 800, 0.03);
+    const g = a.createGain();
+    g.gain.setValueAtTime(0.8 - i * 0.12, now + i * 0.04);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.06 + i * 0.04);
+    n.connect(g); g.connect(master);
+    s.start(now + i * 0.04); s.stop(now + 0.10 + i * 0.04);
+  }
+  // Low rumble thud
+  const osc = a.createOscillator(), tg = a.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(90, now); osc.frequency.exponentialRampToValueAtTime(30, now + 0.35);
+  tg.gain.setValueAtTime(1.0, now); tg.gain.exponentialRampToValueAtTime(0.001, now + 0.38);
+  osc.connect(tg); tg.connect(master); osc.start(now); osc.stop(now + 0.40);
+}
+
+function playPhantomOrbCollectSound() {
+  const a = ac(), now = a.currentTime;
+  const master = a.createGain();
+  master.gain.setValueAtTime(0.25, now);
+  master.connect(a.destination);
+  const { node: n, src: s } = makeClickNode(a, 1200, 0.015);
+  const g = a.createGain();
+  g.gain.setValueAtTime(1.0, now); g.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+  n.connect(g); g.connect(master); s.start(now); s.stop(now + 0.05);
+  const osc = a.createOscillator(), og = a.createGain();
+  osc.type = 'sine'; osc.frequency.setValueAtTime(1600, now); osc.frequency.exponentialRampToValueAtTime(400, now + 0.12);
+  og.gain.setValueAtTime(0.4, now); og.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+  osc.connect(og); og.connect(master); osc.start(now); osc.stop(now + 0.16);
+}
+
+function playPhantomExitSound() {
+  const a = ac(), now = a.currentTime;
+  const master = a.createGain();
+  master.gain.setValueAtTime(0.50, now);
+  master.connect(a.destination);
+  // Simultaneous shatter — many rapid noise bursts
+  for (let i = 0; i < 8; i++) {
+    const { node: n, src: s } = makeClickNode(a, 400 + i * 600, 0.025);
+    const g = a.createGain();
+    g.gain.setValueAtTime(0.7, now + i * 0.015);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.05 + i * 0.015);
+    n.connect(g); g.connect(master);
+    s.start(now + i * 0.015); s.stop(now + 0.08 + i * 0.015);
+  }
+  // Reverberant low boom
+  const osc = a.createOscillator(), bg = a.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(60, now); osc.frequency.exponentialRampToValueAtTime(20, now + 0.5);
+  bg.gain.setValueAtTime(1.0, now); bg.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
+  osc.connect(bg); bg.connect(master); osc.start(now); osc.stop(now + 0.58);
+}
+
 function playInfectionSound() {
   const a = ac();
   const now = a.currentTime;
@@ -1420,6 +1514,13 @@ function pointerUp(sx, sy) {
 
   if (state === State.DRAFT) {
     handleDraftTap(touch.sx, touch.sy);
+    touch = null;
+    return;
+  }
+
+  // Phantom mode toggle: long-press (no significant movement) in IDLE
+  if (phantomOrbPickedUp && state === State.IDLE && dt >= PHANTOM_HOLD_MS && dist < 25) {
+    if (phantomMode) exitPhantomMode(); else enterPhantomMode();
     touch = null;
     return;
   }
@@ -1677,6 +1778,11 @@ function fullyUnlock(enemy) {
     infectionOrbSpawned = true;
     spawnInfectionOrb();
   }
+  // Phantom inscription — one-shot at 1500 kills
+  if (!phantomOrbSpawned && killCount >= PHANTOM_KILLS) {
+    phantomOrbSpawned = true;
+    spawnPhantomOrb();
+  }
 
   // B-S2: heal on kill chance
   const mods = getMods();
@@ -1752,6 +1858,33 @@ function fullyUnlock(enemy) {
   if (enemies.every(e => !e.alive)) setTimeout(() => spawnEnemies(), 1200);
 }
 
+function enterPhantomMode() {
+  phantomMode = true;
+  playPhantomEnterSound();
+  screenFlash = { r: 200, g: 255, b: 240, alpha: 0.40 };
+  // Convert all alive enemies to phantom orbs
+  for (const e of enemies) {
+    if (!e.alive) continue;
+    e.alive = false;
+    phantomEnemies.push({ x: e.x, y: e.y, pulse: 0, alive: true });
+  }
+  orbAnnounce = { label: '幻影', color: '#88ffdd', age: 0, maxAge: 70, slowFrames: 35 };
+}
+
+function exitPhantomMode() {
+  phantomMode = false;
+  playPhantomExitSound();
+  for (const pe of phantomEnemies) {
+    if (pe.alive) {
+      addFx('explosion', pe.x, pe.y, { color: '#88ffdd', maxAge: 45 });
+      pe.alive = false;
+    }
+  }
+  phantomEnemies.length = 0;
+  screenFlash = { r: 200, g: 255, b: 240, alpha: 0.35 };
+  orbAnnounce = { label: '幻影解除', color: '#aacccc', age: 0, maxAge: 75, slowFrames: 30 };
+}
+
 function emergencyEscape(dx, dy, dt) {
   const dist = Math.hypot(dx, dy);
   if (dist >= CFG.FLICK_MIN) {
@@ -1815,6 +1948,7 @@ function resetGame() {
   fusionSlotB = -1;
   score = 0; frame = 0; gameTime = 0; spawnTimer = 0; enemyBoostStacks = 0;
   infectedMode = false; infectionOrbSpawned = false; orbAnnounce = null;
+  phantomMode = false; phantomOrbSpawned = false; phantomOrbPickedUp = false; phantomEnemies.length = 0;
   beamFlash = uiShake = ghostTimer = 0;
   screenFlash = null; connectedEnemy = null;
   combo = 0; maxCombo = 0; killCount = 0; comboMissCount = 0;
@@ -1957,8 +2091,8 @@ function update() {
     }
   }
 
-  // Continuous enemy trickle (density increases with time + inscription mods)
-  {
+  // Continuous enemy trickle (suppressed during phantom mode)
+  if (!phantomMode) {
     const mods0    = getMods();
     const alive    = enemies.filter(e => e.alive).length;
     const boostCount = enemyBoostStacks * 7;
@@ -1970,6 +2104,22 @@ function update() {
     if (spawnTimer >= interval && alive < maxCount) {
       spawnEnemy();
       spawnTimer = 0;
+    }
+  }
+
+  // Phantom enemy orb updates & collection
+  if (phantomMode) {
+    for (let i = phantomEnemies.length - 1; i >= 0; i--) {
+      const pe = phantomEnemies[i];
+      if (!pe.alive) { phantomEnemies.splice(i, 1); continue; }
+      pe.pulse = (pe.pulse || 0) + 1;
+      if (Math.hypot(player.x - pe.x, player.y - pe.y) < 32) {
+        pe.alive = false;
+        enemyBoostStacks++;
+        playPhantomOrbCollectSound();
+        addFx('explosion', pe.x, pe.y, { color: '#88ffdd', maxAge: 35 });
+        phantomEnemies.splice(i, 1);
+      }
     }
   }
 
@@ -2011,6 +2161,14 @@ function render() {
   ctx.fillStyle = '#f8f7f4';
   ctx.fillRect(0, 0, w, h);
 
+  // ── Phantom mode world filter ──
+  if (phantomMode) {
+    const phase = Math.floor(t * 5) % 3;
+    if      (phase === 0) ctx.filter = 'invert(100%) hue-rotate(120deg) saturate(250%)';
+    else if (phase === 1) ctx.filter = 'invert(85%) hue-rotate(240deg) saturate(350%) brightness(0.75)';
+    else                  ctx.filter = 'invert(100%) hue-rotate(0deg) saturate(180%) brightness(1.2)';
+  }
+
   // ── World transform (camera zoom: positive=zoom in/narrow, negative=zoom out/wide) ──
   ctx.save();
   const zoomMod = getMods().cameraZoom;
@@ -2026,11 +2184,31 @@ function render() {
   renderEffectsWorld(t);
   renderKeyDrops(t);
   renderInscriptionOrbs(t);
+  if (phantomMode) renderPhantomEnemies(t);
   if (state === State.CONNECTED && connectedEnemy) renderBeam(t);
   for (const e of enemies) if (e.alive) renderEnemy(e, t);
   renderPlayer(t);
 
   ctx.restore();
+  ctx.filter = 'none'; // clear phantom filter before screen-space rendering
+
+  // Phantom glitch scanlines overlay
+  if (phantomMode) {
+    ctx.save();
+    const lineH = 4, skip = Math.floor(t * 30) % lineH;
+    ctx.globalAlpha = 0.08;
+    ctx.fillStyle = '#000000';
+    for (let y = skip; y < h; y += lineH * 2) ctx.fillRect(0, y, w, lineH);
+    // Occasional horizontal offset stripe
+    const stripePhase = Math.floor(t * 8);
+    if (stripePhase % 5 === 0) {
+      const sy = (stripePhase * 73) % h;
+      ctx.globalAlpha = 0.35;
+      ctx.fillStyle = '#88ffdd';
+      ctx.fillRect(0, sy, w, 2);
+    }
+    ctx.restore();
+  }
   // ── Screen space ──
 
   if (screenFlash) {
@@ -2047,6 +2225,39 @@ function render() {
   if (state === State.DRAFT)    renderDraft(w, h, t);
   if (state === State.PAUSED)        renderPause(w, h);
   if (state === State.FUSION_SELECT) renderFusionSelect(w, h, t);
+}
+
+function renderPhantomEnemies(t) {
+  for (const pe of phantomEnemies) {
+    if (!pe.alive) continue;
+    const pulse = Math.sin(t * 4 + (pe.pulse || 0) * 0.1) * 0.5 + 0.5;
+    const r = 14 + pulse * 4;
+    ctx.save();
+    ctx.translate(pe.x, pe.y);
+    // Outer glow
+    ctx.globalAlpha = 0.18 + pulse * 0.12;
+    ctx.fillStyle = '#88ffdd';
+    ctx.beginPath(); ctx.arc(0, 0, r * 2.2, 0, Math.PI * 2); ctx.fill();
+    // Core orb
+    ctx.globalAlpha = 0.75 + pulse * 0.2;
+    ctx.fillStyle = '#ccffee';
+    ctx.strokeStyle = '#88ffdd';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    // Spinning dashes
+    ctx.setLineDash([4, 3]); ctx.lineDashOffset = -t * 50;
+    ctx.globalAlpha = 0.55 + pulse * 0.3;
+    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(0, 0, r + 6, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+    // Label
+    ctx.globalAlpha = 0.8;
+    ctx.fillStyle = '#003322';
+    ctx.font = 'bold 10px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('敵増', 0, 4);
+    ctx.restore();
+  }
 }
 
 function renderOrbAnnounce(w, h) {
@@ -2081,11 +2292,11 @@ function renderOrbAnnounce(w, h) {
   ctx.fillText(a.label, cx, cy + 10);
   ctx.shadowBlur = 0;
 
-  // Sub-label
-  ctx.globalAlpha = alpha * 0.55;
+  // Sub-label (custom or default '取得')
+  ctx.globalAlpha = alpha * 0.65;
   ctx.fillStyle = '#ffffff';
-  ctx.font = '14px -apple-system, sans-serif';
-  ctx.fillText('取得', cx, cy + 38);
+  ctx.font = '15px -apple-system, sans-serif';
+  ctx.fillText(a.sub || '取得', cx, cy + 46);
 
   ctx.globalAlpha = 1;
   ctx.restore();
@@ -2971,6 +3182,31 @@ function renderInscriptionOrbs(t) {
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText('+', 0, 0);
       ctx.textBaseline = 'alphabetic';
+    } else if (orb.type === 'phantom') {
+      // Ethereal cyan phantom orb
+      const r = 22 + pulse * 6;
+      [r + 10, r, r - 8].forEach((rr, i) => {
+        ctx.globalAlpha = (0.10 + pulse * 0.08) / (i + 1);
+        ctx.strokeStyle = '#44ffdd'; ctx.lineWidth = 3.5 - i;
+        ctx.beginPath(); ctx.arc(0, 0, rr, 0, Math.PI * 2); ctx.stroke();
+      });
+      ctx.setLineDash([5, 3]); ctx.lineDashOffset = t * 55;
+      ctx.globalAlpha = 0.55 + pulse * 0.3;
+      ctx.strokeStyle = '#aaffee'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(0, 0, r - 5, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 0.88 + pulse * 0.12;
+      ctx.fillStyle = '#004433';
+      ctx.strokeStyle = '#44ffdd'; ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(0, -13); ctx.lineTo(10, 0); ctx.lineTo(0, 13); ctx.lineTo(-10, 0);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.globalAlpha = 0.9;
+      ctx.fillStyle = '#88ffdd';
+      ctx.font = 'bold 9px -apple-system, monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('幻', 0, 0);
+      ctx.textBaseline = 'alphabetic';
     } else if (orb.type === 'fusion') {
       // Multi-color spinning ring segments
       const segColors = ['#e8453c', '#3c7de8', '#ddb830', '#3db86a', '#9844e8'];
@@ -3031,7 +3267,8 @@ function renderInscriptionEdgeIndicators() {
     const isFusion     = orb.type === 'fusion';
     const isEnemyBoost = orb.type === 'enemy_boost';
     const isInfection  = orb.type === 'infection';
-    const col = isInfection ? '#cc44ff' : isEnemyBoost ? '#ff4400' : isFusion ? '#ffcc44' : RARITY_COLOR[orb.rarity];
+    const isPhantom    = orb.type === 'phantom';
+    const col = isInfection ? '#cc44ff' : isEnemyBoost ? '#ff4400' : isFusion ? '#ffcc44' : isPhantom ? '#44ffdd' : RARITY_COLOR[orb.rarity];
     const pulse     = 0.72 + 0.28 * Math.sin(t * 3.8 + (orb.pulse || 0) * 0.05);
 
     ctx.save();
@@ -3063,7 +3300,7 @@ function renderInscriptionEdgeIndicators() {
     ctx.fillStyle = col;
     ctx.font = `bold 8px -apple-system, sans-serif`;
     ctx.textAlign = 'center';
-    ctx.fillText(isInfection ? '感染' : isEnemyBoost ? '敵増' : isFusion ? '融合' : '刻印', 0, 22);
+    ctx.fillText(isInfection ? '感染' : isEnemyBoost ? '敵増' : isFusion ? '融合' : isPhantom ? '幻影' : '刻印', 0, 22);
 
     // Small direction tick pointing toward orb (outside the badge)
     ctx.globalAlpha = 0.65 * pulse;
