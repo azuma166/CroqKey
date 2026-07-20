@@ -913,31 +913,54 @@ function playHitSound(hitsLanded, maxHp, crit, combo = 0, depleted = false) {
   const t        = Math.min((hitsLanded - 1) / Math.max(maxHp - 1, 1), 1);
   const baseFreq = 220 * Math.pow(4, t * 0.85);
 
-  const masterVol = depleted ? 1.0 : (crit ? 0.52 : 0.32);
+  // 枯渇時: 解錠音と同じ構造、トライアングル波で鈍い音色
+  if (depleted) {
+    const master = a.createGain();
+    master.gain.setValueAtTime(0.45, now);
+    master.connect(a.destination);
+    [[880, 0.9], [880 * 2.756, 0.5], [880 * 5.404, 0.25]].forEach(([f, amp]) => {
+      const osc = a.createOscillator(), g = a.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(f, now);
+      g.gain.setValueAtTime(amp, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+      osc.connect(g); g.connect(master);
+      osc.start(now); osc.stop(now + 0.32);
+    });
+    const { node: cn, src: cs } = makeClickNode(a, 4000, 0.02);
+    const cg = a.createGain();
+    cg.gain.setValueAtTime(1.2, now);
+    cg.gain.exponentialRampToValueAtTime(0.001, now + 0.018);
+    cn.connect(cg); cg.connect(master);
+    cs.start(now); cs.stop(now + 0.025);
+    return;
+  }
+
+  const masterVol = crit ? 0.52 : 0.32;
   const master = a.createGain();
   master.gain.setValueAtTime(masterVol, now);
   master.connect(a.destination);
 
   // ── カチッ: noise burst through bandpass ──
-  const { node: clickOut, src: clickSrc } = makeClickNode(a, depleted ? baseFreq * 2 : baseFreq * 6, 0.03);
+  const { node: clickOut, src: clickSrc } = makeClickNode(a, baseFreq * 6, 0.03);
   const clickGain = a.createGain();
   clickGain.gain.setValueAtTime(0.9, now);
-  clickGain.gain.exponentialRampToValueAtTime(0.001, now + (depleted ? 0.022 : 0.028));
+  clickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.028);
   clickOut.connect(clickGain);
   clickGain.connect(master);
   clickSrc.start(now);
   clickSrc.stop(now + 0.035);
 
-  // ── シャーン / ドン: bell partials (枯渇時は低域寄りの鈍い音) ──
+  // ── シャーン: metallic bell partials ──
   const partials = [1, 2.756, 5.404];
   const amps     = [1.0, 0.45, 0.22];
-  const decay    = depleted ? 0.22 : (0.38 + t * 0.55 + (crit ? 0.28 : 0));
+  const decay    = 0.38 + t * 0.55 + (crit ? 0.28 : 0);
 
   for (let i = 0; i < partials.length; i++) {
     const osc  = a.createOscillator();
     const gain = a.createGain();
-    osc.type = depleted ? 'triangle' : 'sine';
-    osc.frequency.setValueAtTime(baseFreq * (depleted ? partials[i] * 0.5 : partials[i]), now);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(baseFreq * partials[i], now);
     gain.gain.setValueAtTime(amps[i] * 0.55, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + decay);
     osc.connect(gain);
