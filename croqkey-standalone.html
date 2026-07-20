@@ -2172,7 +2172,7 @@ function render() {
   }
   ctx.translate(-cam.x, -cam.y);
 
-  drawInfiniteGrid();
+  if (!phantomMode) drawInfiniteGrid();
   renderEffectsWorld(t);
   renderKeyDrops(t);
   renderInscriptionOrbs(t);
@@ -2211,36 +2211,21 @@ function render() {
 }
 
 function renderPhantomEnemies(t) {
+  // Minimal rendering: single circle + label per orb, no save/restore/lineDash
+  ctx.font = 'bold 10px sans-serif';
+  ctx.textAlign = 'center';
   for (const pe of phantomEnemies) {
     if (!pe.alive) continue;
-    const pulse = Math.sin(t * 4 + (pe.pulse || 0) * 0.1) * 0.5 + 0.5;
-    const r = 14 + pulse * 4;
-    ctx.save();
-    ctx.translate(pe.x, pe.y);
-    // Outer glow
-    ctx.globalAlpha = 0.18 + pulse * 0.12;
+    const pulse = Math.sin(t * 4 + (pe.pulse || 0) * 0.1) * 0.4 + 0.6;
+    const r = 14;
+    ctx.globalAlpha = pulse * 0.9;
     ctx.fillStyle = '#88ffdd';
-    ctx.beginPath(); ctx.arc(0, 0, r * 2.2, 0, Math.PI * 2); ctx.fill();
-    // Core orb
-    ctx.globalAlpha = 0.75 + pulse * 0.2;
-    ctx.fillStyle = '#ccffee';
-    ctx.strokeStyle = '#88ffdd';
-    ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-    // Spinning dashes
-    ctx.setLineDash([4, 3]); ctx.lineDashOffset = -t * 50;
-    ctx.globalAlpha = 0.55 + pulse * 0.3;
-    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.arc(0, 0, r + 6, 0, Math.PI * 2); ctx.stroke();
-    ctx.setLineDash([]);
-    // Label
-    ctx.globalAlpha = 0.8;
+    ctx.beginPath(); ctx.arc(pe.x, pe.y, r, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 0.85;
     ctx.fillStyle = '#003322';
-    ctx.font = 'bold 10px -apple-system, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('敵増', 0, 4);
-    ctx.restore();
+    ctx.fillText('敵増', pe.x, pe.y + 4);
   }
+  ctx.globalAlpha = 1;
 }
 
 function renderOrbAnnounce(w, h) {
