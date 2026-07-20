@@ -1365,10 +1365,10 @@ function pointerUp(sx, sy) {
   if (state === State.PAUSED) {
     const w = W(), h = H();
     const cx = w / 2, cy = h / 2;
-    const cardH = 220;
+    const cardH = 420;
     const cardY = cy - cardH / 2;
-    const resumeY = cardY + 90;
-    const resetY  = cardY + 148;
+    const resumeY = cardY + 82;
+    const resetY  = cardY + 146;
     const tSx = touch.sx, tSy = touch.sy;
     if (tSx >= cx - 80 && tSx <= cx + 80 && tSy >= resumeY && tSy <= resumeY + 44) {
       state = stateBeforePause;
@@ -3395,7 +3395,7 @@ function renderPause(w, h) {
   ctx.fillRect(0, 0, w, h);
 
   const cx = w / 2, cy = h / 2;
-  const cardW = Math.min(w - 48, 280), cardH = 220;
+  const cardW = Math.min(w - 48, 300), cardH = 420;
   const cardX = cx - cardW / 2, cardY = cy - cardH / 2;
 
   // Card
@@ -3444,6 +3444,40 @@ function renderPause(w, h) {
   ctx.font = 'bold 16px -apple-system, sans-serif';
   ctx.textAlign = 'center';
   ctx.fillText('リセット', cx, resetY + 30);
+
+  // Divider before how-to
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(cardX + 24, cardY + 212); ctx.lineTo(cardX + cardW - 24, cardY + 212);
+  ctx.stroke();
+
+  // How-to section
+  ctx.fillStyle = 'rgba(200,195,230,0.55)';
+  ctx.font = 'bold 11px -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('操作説明', cx, cardY + 230);
+
+  const tips = [
+    ['フリック', '移動'],
+    ['敵をタップ', '解錠モード（円内でロック）'],
+    ['円外フリック', '緊急離脱'],
+    ['下部タップ', '鍵を選択'],
+    ['同色の鍵', 'クリティカルヒット'],
+  ];
+  const labelX = cardX + 20;
+  const valX   = cardX + cardW - 20;
+  let tipY = cardY + 252;
+  ctx.font = '13px -apple-system, sans-serif';
+  for (const [label, desc] of tips) {
+    ctx.fillStyle = '#b8b4d4';
+    ctx.textAlign = 'left';
+    ctx.fillText(label, labelX, tipY);
+    ctx.fillStyle = 'rgba(200,195,230,0.6)';
+    ctx.textAlign = 'right';
+    ctx.fillText(desc, valX, tipY);
+    tipY += 26;
+  }
 }
 
 function wrapText(ctx, text, cx, y, maxW, lineH) {
