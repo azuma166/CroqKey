@@ -1153,7 +1153,7 @@ function playDraftPickSound(rarity) {
 function playSlotSelectSound() {
   const a = ac(), now = a.currentTime;
   const master = a.createGain();
-  master.gain.setValueAtTime(0.28, now);
+  master.gain.setValueAtTime(0.45, now);
   master.connect(a.destination);
   // 高めのトーン + 倍音
   [[1200, 0.9], [2400, 0.3]].forEach(([f, amp]) => {
@@ -1178,7 +1178,7 @@ function playSlotSelectSound() {
 function playKeyDepletedSound() {
   const a = ac(), now = a.currentTime;
   const master = a.createGain();
-  master.gain.setValueAtTime(0.30, now);
+  master.gain.setValueAtTime(0.45, now);
   master.connect(a.destination);
   const lp = a.createBiquadFilter();
   lp.type = 'lowpass';
