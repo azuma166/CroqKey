@@ -1888,7 +1888,7 @@ function update() {
     const baseMax  = CFG.ENEMY_COUNT + Math.floor(gameTime / 30) + Math.round(mods0.enemyCountBonus) + boostCount;
     const maxCount = Math.min(CFG.ENEMY_COUNT_MAX + Math.round(mods0.enemyCountBonus) + boostCount, baseMax);
     const baseInterval = Math.max(180, CFG.SPAWN_INTERVAL - Math.floor(gameTime / 20) * 40);
-    const interval = Math.max(30, Math.round(baseInterval * (1 + mods0.spawnIntervalMult - enemyBoostStacks * 0.50)));
+    const interval = Math.max(30, Math.round(baseInterval * (1 + mods0.spawnIntervalMult) / Math.pow(1.3, enemyBoostStacks)));
     spawnTimer++;
     if (spawnTimer >= interval && alive < maxCount) {
       spawnEnemy();
@@ -2644,7 +2644,7 @@ function renderHUD(w, h) {
   ctx.fillText(`敵 ×${alive}`, 16, 44);
   if (enemyBoostStacks > 0) {
     ctx.fillStyle = '#ff8844'; ctx.font = 'bold 10px -apple-system, monospace'; ctx.textAlign = 'left';
-    ctx.fillText(`敵増 +${enemyBoostStacks * 7}  速 +${Math.round(enemyBoostStacks * 50)}%`, 16, 58);
+    ctx.fillText(`敵増 +${enemyBoostStacks * 7}  速 ×${Math.pow(1.3, enemyBoostStacks).toFixed(2)}`, 16, 58);
   }
 
   // Combo display (top center below HP)
