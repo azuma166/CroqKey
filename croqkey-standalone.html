@@ -489,10 +489,12 @@ function openDraft(orbIndex) {
     playEnemyBoostKeySound();
     addFx('explosion', player.x, player.y, { color: '#ff4400', maxAge: 35 });
     screenFlash = { r: 220, g: 60, b: 20, alpha: 0.18 };
+    orbAnnounce = { label: '敵増加', color: '#ff6622', age: 0, maxAge: 100, slowFrames: 65 };
   } else if (orb.type === 'infection') {
     infectedMode = true;
     playInfectionSound();
     screenFlash = { r: 60, g: 0, b: 100, alpha: 0.30 };
+    orbAnnounce = { label: '刻印感染', color: '#cc44ff', age: 0, maxAge: 110, slowFrames: 70 };
   } else if (orb.type === 'fusion') {
     fusionSlotA = -1;
     state = State.FUSION_SELECT;
@@ -653,6 +655,7 @@ let killCount      = 0;
 let comboMissCount = 0; // counts forgiven misses this combo chain
 let enemyBoostStacks = 0; // accumulated from enemy-boost key pickups (all-fused state)
 let infectedMode = false;     // true after 刻印感染 orb is collected
+let orbAnnounce  = null;      // { label, color, age, maxAge } — full-screen pickup announcement
 let infectionOrbSpawned = false; // one-shot flag
 let untouchedStreak = 0; // B-X5: kills without taking damage
 let comboIdleFrames = 0; // D-R3: frames in IDLE without hitting
@@ -1811,7 +1814,7 @@ function resetGame() {
   fusionSlotA = -1;
   fusionSlotB = -1;
   score = 0; frame = 0; gameTime = 0; spawnTimer = 0; enemyBoostStacks = 0;
-  infectedMode = false; infectionOrbSpawned = false;
+  infectedMode = false; infectionOrbSpawned = false; orbAnnounce = null;
   beamFlash = uiShake = ghostTimer = 0;
   screenFlash = null; connectedEnemy = null;
   combo = 0; maxCombo = 0; killCount = 0; comboMissCount = 0;
@@ -1844,7 +1847,16 @@ function update() {
   if (state === State.DRAFT || state === State.PAUSED || state === State.FUSION_SELECT) return;
   frame++;
   gameTime = frame / 60;
-  const sf = state === State.CONNECTED ? CFG.SLOW_FACTOR : 1.0;
+
+  // Orb announce: age and compute slow factor
+  let announceSf = 1.0;
+  if (orbAnnounce) {
+    orbAnnounce.age++;
+    if (orbAnnounce.age >= orbAnnounce.maxAge) { orbAnnounce = null; }
+    else if (orbAnnounce.age < orbAnnounce.slowFrames) { announceSf = 0.10; }
+  }
+
+  const sf = (state === State.CONNECTED ? CFG.SLOW_FACTOR : 1.0) * announceSf;
 
   // Player — apply speed mod cap
   if (state === State.IDLE) {
@@ -1855,8 +1867,8 @@ function update() {
       player.vx = (player.vx / spd) * maxSpd;
       player.vy = (player.vy / spd) * maxSpd;
     }
-    player.x += player.vx;
-    player.y += player.vy;
+    player.x += player.vx * announceSf;
+    player.y += player.vy * announceSf;
     const friction = Math.min(0.998, CFG.FRICTION + getMods().inertiaBonus * 0.018);
     player.vx *= friction;
     player.vy *= friction;
@@ -2030,10 +2042,53 @@ function render() {
   if (state === State.CONNECTED) renderCircularUI(t);
   renderKeyPanel(t);
   renderHUD(w, h);
+  if (orbAnnounce) renderOrbAnnounce(w, h);
   if (state === State.GAMEOVER) renderGameOver(w, h);
   if (state === State.DRAFT)    renderDraft(w, h, t);
   if (state === State.PAUSED)        renderPause(w, h);
   if (state === State.FUSION_SELECT) renderFusionSelect(w, h, t);
+}
+
+function renderOrbAnnounce(w, h) {
+  const a = orbAnnounce;
+  const p = a.age / a.maxAge;
+  const fadeIn  = Math.min(1, a.age / 10);
+  const fadeOut = a.age > a.maxAge - 22 ? (a.maxAge - a.age) / 22 : 1;
+  const alpha   = fadeIn * fadeOut;
+
+  // Dark overlay
+  ctx.save();
+  ctx.fillStyle = `rgba(8, 6, 18, ${0.76 * alpha})`;
+  ctx.fillRect(0, 0, w, h);
+
+  const cx = w / 2, cy = h / 2;
+
+  // Glow halo behind text
+  ctx.globalAlpha = 0.18 * alpha;
+  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 160);
+  grad.addColorStop(0, a.color);
+  grad.addColorStop(1, 'transparent');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+
+  // Main label
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = a.color;
+  ctx.font = `bold ${Math.round(Math.min(w, h) * 0.11)}px -apple-system, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.shadowColor = a.color;
+  ctx.shadowBlur  = 28;
+  ctx.fillText(a.label, cx, cy + 10);
+  ctx.shadowBlur = 0;
+
+  // Sub-label
+  ctx.globalAlpha = alpha * 0.55;
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '14px -apple-system, sans-serif';
+  ctx.fillText('取得', cx, cy + 38);
+
+  ctx.globalAlpha = 1;
+  ctx.restore();
 }
 
 function drawInfiniteGrid() {
