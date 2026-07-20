@@ -1868,7 +1868,7 @@ function enterPhantomMode() {
     e.alive = false;
     phantomEnemies.push({ x: e.x, y: e.y, pulse: 0, alive: true });
   }
-  orbAnnounce = { label: '幻影', color: '#88ffdd', age: 0, maxAge: 70, slowFrames: 35 };
+  orbAnnounce = { label: '幻影', color: '#88ffdd', age: 0, maxAge: 70, slowFrames: 0 };
 }
 
 function exitPhantomMode() {
@@ -1882,7 +1882,7 @@ function exitPhantomMode() {
   }
   phantomEnemies.length = 0;
   screenFlash = { r: 200, g: 255, b: 240, alpha: 0.35 };
-  orbAnnounce = { label: '幻影解除', color: '#aacccc', age: 0, maxAge: 75, slowFrames: 30 };
+  orbAnnounce = { label: '幻影解除', color: '#aacccc', age: 0, maxAge: 75, slowFrames: 0 };
 }
 
 function emergencyEscape(dx, dy, dt) {
@@ -2290,11 +2290,13 @@ function renderOrbAnnounce(w, h) {
   ctx.fillText(a.label, cx, cy + 10);
   ctx.shadowBlur = 0;
 
-  // Sub-label (custom or default '取得')
-  ctx.globalAlpha = alpha * 0.65;
-  ctx.fillStyle = '#ffffff';
-  ctx.font = '15px -apple-system, sans-serif';
-  ctx.fillText(a.sub || '取得', cx, cy + 46);
+  // Sub-label (only if explicitly set)
+  if (a.sub) {
+    ctx.globalAlpha = alpha * 0.65;
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '15px -apple-system, sans-serif';
+    ctx.fillText(a.sub, cx, cy + 46);
+  }
 
   ctx.globalAlpha = 1;
   ctx.restore();
