@@ -2163,7 +2163,7 @@ function render() {
 
   // ── Phantom mode world filter: hard invert + slowly drifting hue ──
   if (phantomMode) {
-    const hue = (t * 50) % 360; // full cycle every ~7 seconds
+    const hue = (t * 25) % 360; // full cycle every ~14 seconds
     ctx.filter = `invert(100%) hue-rotate(${hue.toFixed(1)}deg) saturate(320%) brightness(0.85)`;
   }
 
