@@ -3054,7 +3054,7 @@ function renderGameOver(w, h) {
 
   // Stats
   const stats = [
-    { label: '生存時間',    value: `${Math.floor(res.gameTime)}秒` },
+    { label: '生存時間',    value: (() => { const s = Math.floor(res.gameTime); return s >= 60 ? `${Math.floor(s/60)}m ${s%60}s` : `${s}s`; })() },
     { label: '解錠数',      value: `${res.killCount}`, highlight: isNewBest },
     { label: 'MAXコンボ',  value: `${res.maxCombo}` },
     { label: '取得刻印',    value: `${res.inscriptions || 0}個` },
