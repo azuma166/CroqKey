@@ -1166,6 +1166,16 @@ function playDraftPickSound(rarity) {
 }
 
 // 見送り音: 柔らかい下降2音
+function playSlotSelectSound() {
+  const a = ac(), now = a.currentTime;
+  const { node: n, src: s } = makeClickNode(a, 900, 0.012);
+  const g = a.createGain();
+  g.gain.setValueAtTime(0.35, now);
+  g.gain.exponentialRampToValueAtTime(0.001, now + 0.028);
+  n.connect(g); g.connect(a.destination);
+  s.start(now); s.stop(now + 0.032);
+}
+
 function playDraftSkipSound() {
   const a = ac();
   const now = a.currentTime;
@@ -1388,7 +1398,7 @@ function handlePanelTap(sx, sy) {
   const slots = keyPanelSlots();
   for (const s of slots) {
     if (Math.hypot(sx - s.cx, sy - s.cy) < s.r + 6) {
-      if (s.slot.dur > 0) selectedSlotIdx = s.idx;
+      if (s.slot.dur > 0) { selectedSlotIdx = s.idx; playSlotSelectSound(); }
       return true;
     }
   }
@@ -2817,12 +2827,27 @@ function renderKeyPanel(t) {
       }
     }
 
-    // Active selection ring
+    // Active: glow halo + thick ring + bottom triangle indicator
     if (active) {
+      // Glow halo
+      ctx.shadowColor = drawCol;
+      ctx.shadowBlur  = 18;
       ctx.strokeStyle = drawCol;
-      ctx.lineWidth   = 2;
-      ctx.globalAlpha = 0.7 * pulse;
+      ctx.lineWidth   = 3.5;
+      ctx.globalAlpha = 0.95 * pulse;
       ctx.beginPath(); ctx.arc(s.cx, s.cy, s.r + 9, 0, Math.PI * 2); ctx.stroke();
+      ctx.shadowBlur  = 0;
+      // Second thin outer ring
+      ctx.lineWidth   = 1;
+      ctx.globalAlpha = 0.45 * pulse;
+      ctx.beginPath(); ctx.arc(s.cx, s.cy, s.r + 14, 0, Math.PI * 2); ctx.stroke();
+      // Bottom triangle indicator
+      ctx.globalAlpha = 0.85 * pulse;
+      ctx.fillStyle   = drawCol;
+      const tx = s.cx, ty = s.cy + s.r + 22;
+      ctx.beginPath();
+      ctx.moveTo(tx - 5, ty); ctx.lineTo(tx + 5, ty); ctx.lineTo(tx, ty + 6);
+      ctx.closePath(); ctx.fill();
     }
 
     // Slot background — gradient fill for fused
@@ -3852,8 +3877,6 @@ function loop() { update(); render(); requestAnimationFrame(loop); }
 
 initPlayer();
 spawnEnemies();
-// DEBUG: spawn phantom orb immediately for testing
-spawnPhantomOrb(); phantomOrbSpawned = true;
 requestAnimationFrame(loop);
 
 </script>
