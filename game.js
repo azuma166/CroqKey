@@ -492,6 +492,7 @@ function openDraft(orbIndex) {
       draftChoices = [generateInscription(), generateInscription(), generateInscription()];
     }
     state = State.DRAFT;
+    draftOpenedAt = performance.now();
   }
 }
 
@@ -565,6 +566,7 @@ function draftCardBounds(w, h) {
 }
 
 function handleDraftTap(sx, sy) {
+  if (performance.now() - draftOpenedAt < 500) return; // 0.5s tap lockout
   const bounds = draftCardBounds(W(), H());
   for (const b of bounds) {
     if (sx >= b.x && sx <= b.x + b.w && sy >= b.y && sy <= b.y + b.h) {
@@ -642,6 +644,7 @@ let player_stunTimer = 0; // D-S5: input-freeze frames after hit (legacy; use pl
 const activeInscriptions = [];
 const inscriptionOrbs    = [];
 let draftChoices         = [];
+let draftOpenedAt        = 0; // performance.now() when draft opened — for tap lockout
 let draftIsFusion        = false;
 let nextOrbAt            = ORB_UNLOCK_KILLS;
 let nextFusionInsAt      = FUSION_INS_UNLOCK;
