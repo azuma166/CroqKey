@@ -3870,4 +3870,6 @@ function loop() { update(); render(); requestAnimationFrame(loop); }
 
 initPlayer();
 spawnEnemies();
+// DEBUG: spawn phantom orb immediately for testing
+spawnPhantomOrb(); phantomOrbSpawned = true;
 requestAnimationFrame(loop);
