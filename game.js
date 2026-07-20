@@ -2171,8 +2171,8 @@ function renderEnemy(e, t) {
   const ecol       = COLOR_HEX[e.color] || CFG.KEY_COLOR;
   const worldDist  = Math.hypot(e.x - player.x, e.y - player.y);
   const colorVisible = getMods().enemyColorFarHide === 0 || worldDist < 180;
-  const ecol_v     = colorVisible ? ecol : '#888';
-  const getCol     = c => colorVisible ? (COLOR_HEX[c] || '#888') : '#888';
+  const ecol_v     = colorVisible ? ecol : '#888888';
+  const getCol     = c => colorVisible ? (COLOR_HEX[c] || '#888888') : '#888888';
   ctx.save();
   ctx.translate(e.x, e.y);
   if (e.crackShake > 0) ctx.translate((Math.random() - 0.5) * 2.5, (Math.random() - 0.5) * 1.5);
@@ -2262,19 +2262,19 @@ function renderEnemy(e, t) {
   ctx.lineTo( ksw, ky + ksh);      ctx.lineTo( ksw, ky + kr * 0.7);
   ctx.stroke();
 
-  // Color dots above enemy (one per component for fusion)
+  // Color dots above enemy (one per component for fusion) — pushed up to avoid pip clash
   allColors.forEach((c, ci) => {
     const ox = (ci - (allColors.length - 1) / 2) * 8;
-    ctx.fillStyle = colorVisible ? COLOR_HEX[c] : '#555';
-    ctx.beginPath(); ctx.arc(ox, -e.r - 5, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = colorVisible ? COLOR_HEX[c] : '#555555';
+    ctx.beginPath(); ctx.arc(ox, -e.r - 13, 3, 0, Math.PI * 2); ctx.fill();
   });
 
-  // HP pips — alternate component colors for fusion enemies
+  // HP pips — start from bottom (π/2) for symmetric layout, clear of color dots at top
   for (let i = 0; i < e.maxHp; i++) {
-    const a = (i / e.maxHp) * Math.PI * 2 - Math.PI * 0.5;
-    const pipCol = colorVisible ? COLOR_HEX[allColors[i % allColors.length]] : '#666';
-    ctx.fillStyle = i < e.hp ? pipCol : '#ccc';
-    ctx.beginPath(); ctx.arc(Math.cos(a) * (e.r + 7), Math.sin(a) * (e.r + 7), 2.5, 0, Math.PI * 2); ctx.fill();
+    const a = (i / e.maxHp) * Math.PI * 2 + Math.PI * 0.5;
+    const pipCol = colorVisible ? COLOR_HEX[allColors[i % allColors.length]] : '#666666';
+    ctx.fillStyle = i < e.hp ? pipCol : '#444444';
+    ctx.beginPath(); ctx.arc(Math.cos(a) * (e.r + 8), Math.sin(a) * (e.r + 8), 2.5, 0, Math.PI * 2); ctx.fill();
   }
 
   const lost = e.maxHp - e.hp;
