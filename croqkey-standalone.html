@@ -2658,7 +2658,7 @@ function renderHUD(w, h) {
   ctx.fillText(`敵 ×${alive}`, 16, 44);
   if (enemyBoostStacks > 0) {
     ctx.fillStyle = '#ff8844'; ctx.font = 'bold 10px -apple-system, monospace'; ctx.textAlign = 'left';
-    ctx.fillText(`敵増 +${enemyBoostStacks * 7}  速 ×${Math.pow(1.3, enemyBoostStacks).toFixed(2)}`, 16, 58);
+    ctx.fillText(`敵増 +${enemyBoostStacks * 7}  頻 ×${Math.pow(1.3, enemyBoostStacks).toFixed(2)}`, 16, 58);
   }
 
   // Combo display (top center below HP)
