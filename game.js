@@ -2265,7 +2265,7 @@ function renderEnemy(e, t) {
 
   // HP pips — start from top, decrease clockwise
   for (let i = 0; i < e.maxHp; i++) {
-    const a = (i / e.maxHp) * Math.PI * 2 - Math.PI * 0.5;
+    const a = -(i / e.maxHp) * Math.PI * 2 - Math.PI * 0.5;
     const pipCol = colorVisible ? COLOR_HEX[allColors[i % allColors.length]] : '#666666';
     ctx.fillStyle = i < e.hp ? pipCol : '#888888';
     ctx.beginPath(); ctx.arc(Math.cos(a) * (e.r + 8), Math.sin(a) * (e.r + 8), 2.5, 0, Math.PI * 2); ctx.fill();
@@ -2275,7 +2275,7 @@ function renderEnemy(e, t) {
   if (lost > 0) {
     ctx.strokeStyle = '#aaa'; ctx.lineWidth = 1;
     for (let i = 0; i < lost; i++) {
-      const a = (i / e.maxHp) * Math.PI * 2 - Math.PI * 0.5;
+      const a = -(i / e.maxHp) * Math.PI * 2 - Math.PI * 0.5;
       ctx.beginPath();
       ctx.moveTo(Math.cos(a) * e.r * 0.45,        Math.sin(a) * e.r * 0.45);
       ctx.lineTo(Math.cos(a + 0.35) * e.r * 0.88, Math.sin(a + 0.35) * e.r * 0.88);
