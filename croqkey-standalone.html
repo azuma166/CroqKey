@@ -2161,12 +2161,10 @@ function render() {
   ctx.fillStyle = '#f8f7f4';
   ctx.fillRect(0, 0, w, h);
 
-  // ── Phantom mode world filter ──
+  // ── Phantom mode world filter: hard invert + slowly drifting hue ──
   if (phantomMode) {
-    const phase = Math.floor(t * 5) % 3;
-    if      (phase === 0) ctx.filter = 'invert(100%) hue-rotate(120deg) saturate(250%)';
-    else if (phase === 1) ctx.filter = 'invert(85%) hue-rotate(240deg) saturate(350%) brightness(0.75)';
-    else                  ctx.filter = 'invert(100%) hue-rotate(0deg) saturate(180%) brightness(1.2)';
+    const hue = (t * 50) % 360; // full cycle every ~7 seconds
+    ctx.filter = `invert(100%) hue-rotate(${hue.toFixed(1)}deg) saturate(320%) brightness(0.85)`;
   }
 
   // ── World transform (camera zoom: positive=zoom in/narrow, negative=zoom out/wide) ──
