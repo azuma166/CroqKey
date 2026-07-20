@@ -1157,6 +1157,31 @@ function playKeyPickupSound(color) {
   cs.start(now); cs.stop(now + 0.018);
 }
 
+function playDamageSound() {
+  const a = ac();
+  const now = a.currentTime;
+  const master = a.createGain();
+  master.gain.setValueAtTime(0.4, now);
+  master.connect(a.destination);
+  // Short thud
+  const osc = a.createOscillator(), g = a.createGain();
+  osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(220, now);
+  osc.frequency.exponentialRampToValueAtTime(60, now + 0.12);
+  g.gain.setValueAtTime(0.5, now);
+  g.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+  osc.connect(g); g.connect(master);
+  osc.start(now); osc.stop(now + 0.18);
+  // Crack transient
+  const noise = a.createOscillator(), ng = a.createGain();
+  noise.type = 'square';
+  noise.frequency.setValueAtTime(800, now);
+  ng.gain.setValueAtTime(0.3, now);
+  ng.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+  noise.connect(ng); ng.connect(master);
+  noise.start(now); noise.stop(now + 0.07);
+}
+
 function playInfectionSound() {
   const a = ac();
   const now = a.currentTime;
@@ -1665,6 +1690,7 @@ function fullyUnlock(enemy) {
     if (player.invincible <= 0 && Math.hypot(player.x - enemy.x, player.y - enemy.y) < PURP_R) {
       const purpMods = getMods();
       player.hp = Math.max(0, player.hp - (1 + Math.max(0, purpMods.incomingDmgBonus)));
+      playDamageSound();
       player.invincible = Math.max(30, CFG.HIT_COOLDOWN + purpMods.invincibleBonus + purpMods.invincibleMalus);
       player.hitFlash   = 22;
       player.stunTimer  = Math.round(purpMods.stunOnHit);
@@ -1844,6 +1870,7 @@ function update() {
         const dmgTaken = 1 + Math.max(0, hitMods.incomingDmgBonus) + connectedBonus;
         const invTime  = Math.max(30, CFG.HIT_COOLDOWN + hitMods.invincibleBonus + hitMods.invincibleMalus);
         player.hp     -= dmgTaken;
+        playDamageSound();
         player.invincible = invTime;
         player.hitFlash   = 22;
         player.stunTimer  = Math.round(hitMods.stunOnHit);
@@ -2156,18 +2183,22 @@ function drawPath(pts) {
 }
 
 function renderEnemy(e, t) {
-  const focused = connectedEnemy === e;
-  const ecol    = COLOR_HEX[e.color] || CFG.KEY_COLOR;
+  const focused    = connectedEnemy === e;
+  const ecol       = COLOR_HEX[e.color] || CFG.KEY_COLOR;
+  const worldDist  = Math.hypot(e.x - player.x, e.y - player.y);
+  const colorVisible = getMods().enemyColorFarHide === 0 || worldDist < 180;
+  const ecol_v     = colorVisible ? ecol : '#888';
+  const getCol     = c => colorVisible ? (COLOR_HEX[c] || '#888') : '#888';
   ctx.save();
   ctx.translate(e.x, e.y);
   if (e.crackShake > 0) ctx.translate((Math.random() - 0.5) * 2.5, (Math.random() - 0.5) * 1.5);
 
   // Proximity pulse (colored)
   if (state === State.IDLE) {
-    const d = Math.hypot(player.x - e.x, player.y - e.y);
+    const d = worldDist;
     if (d < 210) {
       ctx.globalAlpha = 0.10 + 0.07 * Math.sin(t * 3.5);
-      ctx.strokeStyle = ecol; ctx.lineWidth = 1;
+      ctx.strokeStyle = ecol_v; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.arc(0, 0, e.r + 12, 0, Math.PI * 2); ctx.stroke();
       ctx.globalAlpha = 1;
     }
@@ -2178,7 +2209,7 @@ function renderEnemy(e, t) {
   // Green healer aura (any component)
   if (allColors.includes('green')) {
     ctx.globalAlpha = 0.12 + 0.06 * Math.sin(t * 2.5 + (e.healAuraTimer || 0) * 0.1);
-    ctx.strokeStyle = COLOR_HEX['green']; ctx.lineWidth = 1.2; ctx.setLineDash([4, 6]);
+    ctx.strokeStyle = getCol('green'); ctx.lineWidth = 1.2; ctx.setLineDash([4, 6]);
     ctx.beginPath(); ctx.arc(0, 0, 200, 0, Math.PI * 2); ctx.stroke();
     ctx.setLineDash([]);
     ctx.globalAlpha = 1;
@@ -2187,7 +2218,7 @@ function renderEnemy(e, t) {
   // Purple warning pulse
   if (allColors.includes('purple')) {
     ctx.globalAlpha = 0.07 + 0.05 * Math.sin(t * 5);
-    ctx.strokeStyle = COLOR_HEX['purple']; ctx.lineWidth = 1.5; ctx.setLineDash([2, 5]);
+    ctx.strokeStyle = getCol('purple'); ctx.lineWidth = 1.5; ctx.setLineDash([2, 5]);
     ctx.beginPath(); ctx.arc(0, 0, 150, 0, Math.PI * 2); ctx.stroke();
     ctx.setLineDash([]);
     ctx.globalAlpha = 1;
@@ -2206,11 +2237,11 @@ function renderEnemy(e, t) {
 
   // Body — fusion: gradient fill + arc-segment outer ring (mirrors fused key ring)
   if (e.fusion && allColors.length > 1) {
-    // Gradient fill — visible blend of all component colors
+    // Gradient fill — visible blend of all component colors (or gray if hidden)
     const grad = ctx.createLinearGradient(-e.r, 0, e.r, 0);
     allColors.forEach((c, ci) => {
       const stop = ci / Math.max(allColors.length - 1, 1);
-      grad.addColorStop(stop, COLOR_HEX[c] + (focused ? '70' : '45'));
+      grad.addColorStop(stop, getCol(c) + (focused ? '70' : '45'));
     });
     ctx.fillStyle = grad;
     ctx.globalAlpha = 1;
@@ -2221,7 +2252,7 @@ function renderEnemy(e, t) {
     const dashOff  = -(t * 0.38 % 1) * 18;
     allColors.forEach((c, ci) => {
       ctx.globalAlpha = focused ? 0.92 : 0.78;
-      ctx.strokeStyle = COLOR_HEX[c];
+      ctx.strokeStyle = getCol(c);
       ctx.lineWidth   = focused ? 3.0 : 2.2;
       ctx.setLineDash([9, 5]);
       ctx.lineDashOffset = dashOff - ci * 14;
@@ -2232,7 +2263,7 @@ function renderEnemy(e, t) {
     ctx.setLineDash([]); ctx.lineDashOffset = 0;
     ctx.globalAlpha = 1;
   } else {
-    ctx.fillStyle   = focused ? `${ecol}28` : `${ecol}12`;
+    ctx.fillStyle   = focused ? `${ecol_v}28` : `${ecol_v}12`;
     ctx.strokeStyle = focused ? '#222' : '#777';
     ctx.lineWidth   = focused ? 2.5 : 1.5;
     ctx.beginPath(); ctx.arc(0, 0, e.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
@@ -2240,7 +2271,7 @@ function renderEnemy(e, t) {
 
   // Keyhole (colored)
   const kr = e.r * 0.28, ky = -e.r * 0.22, ksw = e.r * 0.22, ksh = e.r * 0.45;
-  ctx.strokeStyle = focused ? ecol : `${ecol}99`; ctx.lineWidth = 1.2;
+  ctx.strokeStyle = focused ? ecol_v : `${ecol_v}99`; ctx.lineWidth = 1.2;
   ctx.beginPath(); ctx.arc(0, ky, kr, 0, Math.PI * 2); ctx.stroke();
   ctx.beginPath();
   ctx.moveTo(-ksw, ky + kr * 0.7); ctx.lineTo(-ksw, ky + ksh);
@@ -2248,8 +2279,6 @@ function renderEnemy(e, t) {
   ctx.stroke();
 
   // Color dots above enemy (one per component for fusion)
-  const worldDist = Math.hypot(e.x - player.x, e.y - player.y);
-  const colorVisible = getMods().enemyColorFarHide === 0 || worldDist < 180;
   allColors.forEach((c, ci) => {
     const ox = (ci - (allColors.length - 1) / 2) * 8;
     ctx.fillStyle = colorVisible ? COLOR_HEX[c] : '#555';
@@ -2616,7 +2645,7 @@ function renderHUD(w, h) {
   const hpCol = hpRatio > 0.5 ? '#3db86a' : hpRatio > 0.25 ? '#ddb830' : '#e8453c';
   if (barW * hpRatio > 6) { ctx.fillStyle = hpCol; roundRect(bx, by, barW * hpRatio, barH, 3); }
   ctx.fillStyle = '#888'; ctx.font = '10px -apple-system, monospace'; ctx.textAlign = 'left';
-  ctx.fillText(`HP ${player.hp} / ${maxHp}`, bx, by + barH + 13);
+  ctx.fillText(`HP ${player.hp.toFixed(1)} / ${maxHp.toFixed(1)}`, bx, by + barH + 13);
 
   ctx.fillStyle = '#999'; ctx.font = 'bold 13px -apple-system, monospace'; ctx.textAlign = 'right';
   ctx.fillText(`解錠 ${score}`, w - 16, 32);
@@ -3448,9 +3477,11 @@ function renderEdgeIndicators() {
     ctx.shadowColor = 'rgba(0,0,0,0.18)';
     ctx.shadowBlur  = 4;
 
-    // Fill: enemy color, opacity by hp remaining
+    // Fill: enemy color (gray if D-V4 active), opacity by hp remaining
+    const edgeMods = getMods();
+    const edgeCol  = edgeMods.enemyColorFarHide > 0 ? '#888' : (COLOR_HEX[e.color] || CFG.KEY_COLOR);
     ctx.globalAlpha = 0.55 + (e.hp / e.maxHp) * 0.35;
-    ctx.fillStyle   = COLOR_HEX[e.color] || CFG.KEY_COLOR;
+    ctx.fillStyle   = edgeCol;
     ctx.beginPath();
     ctx.moveTo( sz,       0);
     ctx.lineTo(-sz * 0.6, -sz * 0.65);
