@@ -2161,17 +2161,11 @@ function render() {
   ctx.fillStyle = '#f8f7f4';
   ctx.fillRect(0, 0, w, h);
 
-  // ── Phantom mode world filter: hard invert + slowly drifting hue ──
-  if (phantomMode) {
-    const hue = (t * 25) % 360; // full cycle every ~14 seconds
-    ctx.filter = `invert(100%) hue-rotate(${hue.toFixed(1)}deg) saturate(320%) brightness(0.85)`;
-  }
-
   // ── World transform (camera zoom: positive=zoom in/narrow, negative=zoom out/wide) ──
   ctx.save();
   const zoomMod = getMods().cameraZoom;
   if (zoomMod !== 0) {
-    const scale = 1 + zoomMod * 0.4; // D-V1 +0.35 → 1.14 (zoom in); B-V1 -0.35 → 0.86 (zoom out)
+    const scale = 1 + zoomMod * 0.4;
     ctx.translate(w / 2, h / 2);
     ctx.scale(scale, scale);
     ctx.translate(-w / 2, -h / 2);
@@ -2187,24 +2181,24 @@ function render() {
   for (const e of enemies) if (e.alive) renderEnemy(e, t);
   renderPlayer(t);
 
-  ctx.restore();
-  ctx.filter = 'none'; // clear phantom filter before screen-space rendering
-
-  // Phantom glitch scanlines overlay
+  // Phantom invert: difference composite over the world (fast — single fillRect)
   if (phantomMode) {
+    ctx.globalCompositeOperation = 'difference';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(cam.x, cam.y, w, h);
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  ctx.restore();
+
+  // Phantom hue tint overlay (screen-space, 2 fillRect calls — very cheap)
+  if (phantomMode) {
+    const hue = (t * 25) % 360;
     ctx.save();
-    const lineH = 4, skip = Math.floor(t * 30) % lineH;
-    ctx.globalAlpha = 0.08;
-    ctx.fillStyle = '#000000';
-    for (let y = skip; y < h; y += lineH * 2) ctx.fillRect(0, y, w, lineH);
-    // Occasional horizontal offset stripe
-    const stripePhase = Math.floor(t * 8);
-    if (stripePhase % 5 === 0) {
-      const sy = (stripePhase * 73) % h;
-      ctx.globalAlpha = 0.35;
-      ctx.fillStyle = '#88ffdd';
-      ctx.fillRect(0, sy, w, 2);
-    }
+    ctx.globalCompositeOperation = 'screen';
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = `hsl(${hue.toFixed(0)}, 100%, 55%)`;
+    ctx.fillRect(0, 0, w, h);
     ctx.restore();
   }
   // ── Screen space ──
