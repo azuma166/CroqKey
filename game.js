@@ -825,6 +825,7 @@ function dropKey(x, y, color) {
 }
 
 function updateKeyDrops() {
+  if (_damageSoundPending) { _damageSoundPending = false; _actualDamageSound(); }
   const pickR = KEY_PICK_RADIUS * (1 + getMods().keyPickRadiusMult);
   for (let i = keyDrops.length - 1; i >= 0; i--) {
     const k = keyDrops[i];
@@ -857,6 +858,7 @@ function collectKey(color) {
 //  AUDIO  (Web Audio API — procedural synthesis)
 // ══════════════════════════════════════════════
 let _ac = null;
+let _damageSoundPending = false;
 function ac() {
   if (!_ac) _ac = new (window.AudioContext || window.webkitAudioContext)();
   if (_ac.state === 'suspended') _ac.resume();
@@ -1142,6 +1144,31 @@ function playKeyPickupSound(color) {
   cs.start(now); cs.stop(now + 0.018);
 }
 
+function _actualDamageSound() {
+  const a = ac();
+  const now = a.currentTime;
+  const master = a.createGain();
+  master.gain.setValueAtTime(0.55, now);
+  master.connect(a.destination);
+  [[280, 1.0], [140, 0.5]].forEach(([f, amp]) => {
+    const osc = a.createOscillator(), g = a.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(f, now);
+    osc.frequency.linearRampToValueAtTime(f * 0.45, now + 0.22);
+    g.gain.setValueAtTime(amp, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+    osc.connect(g); g.connect(master);
+    osc.start(now); osc.stop(now + 0.28);
+  });
+  const { node: cn, src: cs } = makeClickNode(a, 600, 0.02);
+  const cg = a.createGain();
+  cg.gain.setValueAtTime(1.0, now);
+  cg.gain.exponentialRampToValueAtTime(0.001, now + 0.018);
+  cn.connect(cg); cg.connect(master);
+  cs.start(now); cs.stop(now + 0.025);
+}
+function playDamageSound() { _damageSoundPending = true; }
+
 function playInfectionSound() {
   const a = ac();
   const now = a.currentTime;
@@ -1238,6 +1265,7 @@ function fusionConfirmBounds(w, h) {
 }
 
 function pointerDown(sx, sy) {
+  ac(); // ensure AudioContext is running (iOS requires gesture context to stay active)
   // Pause button (available during IDLE and CONNECTED)
   if (state === State.IDLE || state === State.CONNECTED) {
     const pb = pauseButtonBounds();
@@ -1650,6 +1678,7 @@ function fullyUnlock(enemy) {
     if (player.invincible <= 0 && Math.hypot(player.x - enemy.x, player.y - enemy.y) < PURP_R) {
       const purpMods = getMods();
       player.hp = Math.max(0, player.hp - (1 + Math.max(0, purpMods.incomingDmgBonus)));
+      playDamageSound();
       player.invincible = Math.max(30, CFG.HIT_COOLDOWN + purpMods.invincibleBonus + purpMods.invincibleMalus);
       player.hitFlash   = 22;
       player.stunTimer  = Math.round(purpMods.stunOnHit);
@@ -1829,6 +1858,7 @@ function update() {
         const dmgTaken = 1 + Math.max(0, hitMods.incomingDmgBonus) + connectedBonus;
         const invTime  = Math.max(30, CFG.HIT_COOLDOWN + hitMods.invincibleBonus + hitMods.invincibleMalus);
         player.hp     -= dmgTaken;
+        playDamageSound();
         player.invincible = invTime;
         player.hitFlash   = 22;
         player.stunTimer  = Math.round(hitMods.stunOnHit);
@@ -1863,7 +1893,7 @@ function update() {
     const baseMax  = CFG.ENEMY_COUNT + Math.floor(gameTime / 30) + Math.round(mods0.enemyCountBonus) + boostCount;
     const maxCount = Math.min(CFG.ENEMY_COUNT_MAX + Math.round(mods0.enemyCountBonus) + boostCount, baseMax);
     const baseInterval = Math.max(180, CFG.SPAWN_INTERVAL - Math.floor(gameTime / 20) * 40);
-    const interval = Math.max(30, Math.round(baseInterval * (1 + mods0.spawnIntervalMult - enemyBoostStacks * 0.50)));
+    const interval = Math.max(30, Math.round(baseInterval * (1 + mods0.spawnIntervalMult) / Math.pow(1.3, enemyBoostStacks)));
     spawnTimer++;
     if (spawnTimer >= interval && alive < maxCount) {
       spawnEnemy();
@@ -2141,18 +2171,22 @@ function drawPath(pts) {
 }
 
 function renderEnemy(e, t) {
-  const focused = connectedEnemy === e;
-  const ecol    = COLOR_HEX[e.color] || CFG.KEY_COLOR;
+  const focused    = connectedEnemy === e;
+  const ecol       = COLOR_HEX[e.color] || CFG.KEY_COLOR;
+  const worldDist  = Math.hypot(e.x - player.x, e.y - player.y);
+  const colorVisible = getMods().enemyColorFarHide === 0 || worldDist < 180;
+  const ecol_v     = colorVisible ? ecol : '#888';
+  const getCol     = c => colorVisible ? (COLOR_HEX[c] || '#888') : '#888';
   ctx.save();
   ctx.translate(e.x, e.y);
   if (e.crackShake > 0) ctx.translate((Math.random() - 0.5) * 2.5, (Math.random() - 0.5) * 1.5);
 
   // Proximity pulse (colored)
   if (state === State.IDLE) {
-    const d = Math.hypot(player.x - e.x, player.y - e.y);
+    const d = worldDist;
     if (d < 210) {
       ctx.globalAlpha = 0.10 + 0.07 * Math.sin(t * 3.5);
-      ctx.strokeStyle = ecol; ctx.lineWidth = 1;
+      ctx.strokeStyle = ecol_v; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.arc(0, 0, e.r + 12, 0, Math.PI * 2); ctx.stroke();
       ctx.globalAlpha = 1;
     }
@@ -2163,7 +2197,7 @@ function renderEnemy(e, t) {
   // Green healer aura (any component)
   if (allColors.includes('green')) {
     ctx.globalAlpha = 0.12 + 0.06 * Math.sin(t * 2.5 + (e.healAuraTimer || 0) * 0.1);
-    ctx.strokeStyle = COLOR_HEX['green']; ctx.lineWidth = 1.2; ctx.setLineDash([4, 6]);
+    ctx.strokeStyle = getCol('green'); ctx.lineWidth = 1.2; ctx.setLineDash([4, 6]);
     ctx.beginPath(); ctx.arc(0, 0, 200, 0, Math.PI * 2); ctx.stroke();
     ctx.setLineDash([]);
     ctx.globalAlpha = 1;
@@ -2172,7 +2206,7 @@ function renderEnemy(e, t) {
   // Purple warning pulse
   if (allColors.includes('purple')) {
     ctx.globalAlpha = 0.07 + 0.05 * Math.sin(t * 5);
-    ctx.strokeStyle = COLOR_HEX['purple']; ctx.lineWidth = 1.5; ctx.setLineDash([2, 5]);
+    ctx.strokeStyle = getCol('purple'); ctx.lineWidth = 1.5; ctx.setLineDash([2, 5]);
     ctx.beginPath(); ctx.arc(0, 0, 150, 0, Math.PI * 2); ctx.stroke();
     ctx.setLineDash([]);
     ctx.globalAlpha = 1;
@@ -2191,11 +2225,11 @@ function renderEnemy(e, t) {
 
   // Body — fusion: gradient fill + arc-segment outer ring (mirrors fused key ring)
   if (e.fusion && allColors.length > 1) {
-    // Gradient fill — visible blend of all component colors
+    // Gradient fill — visible blend of all component colors (or gray if hidden)
     const grad = ctx.createLinearGradient(-e.r, 0, e.r, 0);
     allColors.forEach((c, ci) => {
       const stop = ci / Math.max(allColors.length - 1, 1);
-      grad.addColorStop(stop, COLOR_HEX[c] + (focused ? '70' : '45'));
+      grad.addColorStop(stop, getCol(c) + (focused ? '70' : '45'));
     });
     ctx.fillStyle = grad;
     ctx.globalAlpha = 1;
@@ -2206,7 +2240,7 @@ function renderEnemy(e, t) {
     const dashOff  = -(t * 0.38 % 1) * 18;
     allColors.forEach((c, ci) => {
       ctx.globalAlpha = focused ? 0.92 : 0.78;
-      ctx.strokeStyle = COLOR_HEX[c];
+      ctx.strokeStyle = getCol(c);
       ctx.lineWidth   = focused ? 3.0 : 2.2;
       ctx.setLineDash([9, 5]);
       ctx.lineDashOffset = dashOff - ci * 14;
@@ -2217,7 +2251,7 @@ function renderEnemy(e, t) {
     ctx.setLineDash([]); ctx.lineDashOffset = 0;
     ctx.globalAlpha = 1;
   } else {
-    ctx.fillStyle   = focused ? `${ecol}28` : `${ecol}12`;
+    ctx.fillStyle   = focused ? `${ecol_v}28` : `${ecol_v}12`;
     ctx.strokeStyle = focused ? '#222' : '#777';
     ctx.lineWidth   = focused ? 2.5 : 1.5;
     ctx.beginPath(); ctx.arc(0, 0, e.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
@@ -2225,7 +2259,7 @@ function renderEnemy(e, t) {
 
   // Keyhole (colored)
   const kr = e.r * 0.28, ky = -e.r * 0.22, ksw = e.r * 0.22, ksh = e.r * 0.45;
-  ctx.strokeStyle = focused ? ecol : `${ecol}99`; ctx.lineWidth = 1.2;
+  ctx.strokeStyle = focused ? ecol_v : `${ecol_v}99`; ctx.lineWidth = 1.2;
   ctx.beginPath(); ctx.arc(0, ky, kr, 0, Math.PI * 2); ctx.stroke();
   ctx.beginPath();
   ctx.moveTo(-ksw, ky + kr * 0.7); ctx.lineTo(-ksw, ky + ksh);
@@ -2233,8 +2267,6 @@ function renderEnemy(e, t) {
   ctx.stroke();
 
   // Color dots above enemy (one per component for fusion)
-  const worldDist = Math.hypot(e.x - player.x, e.y - player.y);
-  const colorVisible = getMods().enemyColorFarHide === 0 || worldDist < 180;
   allColors.forEach((c, ci) => {
     const ox = (ci - (allColors.length - 1) / 2) * 8;
     ctx.fillStyle = colorVisible ? COLOR_HEX[c] : '#555';
@@ -2601,7 +2633,7 @@ function renderHUD(w, h) {
   const hpCol = hpRatio > 0.5 ? '#3db86a' : hpRatio > 0.25 ? '#ddb830' : '#e8453c';
   if (barW * hpRatio > 6) { ctx.fillStyle = hpCol; roundRect(bx, by, barW * hpRatio, barH, 3); }
   ctx.fillStyle = '#888'; ctx.font = '10px -apple-system, monospace'; ctx.textAlign = 'left';
-  ctx.fillText(`HP ${player.hp} / ${maxHp}`, bx, by + barH + 13);
+  ctx.fillText(`HP ${player.hp.toFixed(1)} / ${maxHp.toFixed(1)}`, bx, by + barH + 13);
 
   ctx.fillStyle = '#999'; ctx.font = 'bold 13px -apple-system, monospace'; ctx.textAlign = 'right';
   ctx.fillText(`解錠 ${score}`, w - 16, 32);
@@ -2617,7 +2649,7 @@ function renderHUD(w, h) {
   ctx.fillText(`敵 ×${alive}`, 16, 44);
   if (enemyBoostStacks > 0) {
     ctx.fillStyle = '#ff8844'; ctx.font = 'bold 10px -apple-system, monospace'; ctx.textAlign = 'left';
-    ctx.fillText(`敵増 +${enemyBoostStacks * 7}  速 +${Math.round(enemyBoostStacks * 50)}%`, 16, 58);
+    ctx.fillText(`敵増 +${enemyBoostStacks * 7}  速 ×${Math.pow(1.3, enemyBoostStacks).toFixed(2)}`, 16, 58);
   }
 
   // Combo display (top center below HP)
@@ -3433,9 +3465,11 @@ function renderEdgeIndicators() {
     ctx.shadowColor = 'rgba(0,0,0,0.18)';
     ctx.shadowBlur  = 4;
 
-    // Fill: enemy color, opacity by hp remaining
+    // Fill: enemy color (gray if D-V4 active), opacity by hp remaining
+    const edgeMods = getMods();
+    const edgeCol  = edgeMods.enemyColorFarHide > 0 ? '#888' : (COLOR_HEX[e.color] || CFG.KEY_COLOR);
     ctx.globalAlpha = 0.55 + (e.hp / e.maxHp) * 0.35;
-    ctx.fillStyle   = COLOR_HEX[e.color] || CFG.KEY_COLOR;
+    ctx.fillStyle   = edgeCol;
     ctx.beginPath();
     ctx.moveTo( sz,       0);
     ctx.lineTo(-sz * 0.6, -sz * 0.65);
