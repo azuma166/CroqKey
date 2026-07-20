@@ -1160,26 +1160,24 @@ function playKeyPickupSound(color) {
 function playDamageSound() {
   const a = ac();
   const now = a.currentTime;
-  const master = a.createGain();
-  master.gain.setValueAtTime(0.4, now);
-  master.connect(a.destination);
-  // Short thud
-  const osc = a.createOscillator(), g = a.createGain();
-  osc.type = 'sawtooth';
-  osc.frequency.setValueAtTime(220, now);
-  osc.frequency.exponentialRampToValueAtTime(60, now + 0.12);
-  g.gain.setValueAtTime(0.5, now);
-  g.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
-  osc.connect(g); g.connect(master);
-  osc.start(now); osc.stop(now + 0.18);
-  // Crack transient
-  const noise = a.createOscillator(), ng = a.createGain();
-  noise.type = 'square';
-  noise.frequency.setValueAtTime(800, now);
-  ng.gain.setValueAtTime(0.3, now);
-  ng.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
-  noise.connect(ng); ng.connect(master);
-  noise.start(now); noise.stop(now + 0.07);
+  // Thud: low pitch drop
+  const o1 = a.createOscillator(), g1 = a.createGain();
+  o1.type = 'sine';
+  o1.frequency.setValueAtTime(300, now);
+  o1.frequency.exponentialRampToValueAtTime(80, now + 0.18);
+  g1.gain.setValueAtTime(0.9, now);
+  g1.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+  o1.connect(g1); g1.connect(a.destination);
+  o1.start(now); o1.stop(now + 0.25);
+  // Sharp attack click
+  const o2 = a.createOscillator(), g2 = a.createGain();
+  o2.type = 'square';
+  o2.frequency.setValueAtTime(1200, now);
+  o2.frequency.exponentialRampToValueAtTime(200, now + 0.05);
+  g2.gain.setValueAtTime(0.6, now);
+  g2.gain.exponentialRampToValueAtTime(0.001, now + 0.07);
+  o2.connect(g2); g2.connect(a.destination);
+  o2.start(now); o2.stop(now + 0.08);
 }
 
 function playInfectionSound() {
