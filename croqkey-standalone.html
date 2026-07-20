@@ -507,7 +507,7 @@ function openDraft(orbIndex) {
     phantomOrbPickedUp = true;
     playPhantomPickupSound();
     screenFlash = { r: 120, g: 255, b: 220, alpha: 0.22 };
-    orbAnnounce = { label: '幻影刻印', sub: '長押しで幻影モードに', color: '#88ffdd', age: 0, maxAge: 220, slowFrames: 90 };
+    orbAnnounce = { label: '幻影刻印', sub: '長押しで幻影切替', color: '#88ffdd', age: 0, maxAge: 220, slowFrames: 90 };
   } else if (orb.type === 'fusion') {
     fusionSlotA = -1;
     state = State.FUSION_SELECT;
