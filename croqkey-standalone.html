@@ -1165,15 +1165,58 @@ function playDraftPickSound(rarity) {
   }
 }
 
-// 見送り音: 柔らかい下降2音
+// 鍵スロット切替音: カチッ (鍵取得と同程度の音量)
 function playSlotSelectSound() {
   const a = ac(), now = a.currentTime;
-  const { node: n, src: s } = makeClickNode(a, 900, 0.012);
-  const g = a.createGain();
-  g.gain.setValueAtTime(0.35, now);
-  g.gain.exponentialRampToValueAtTime(0.001, now + 0.028);
-  n.connect(g); g.connect(a.destination);
-  s.start(now); s.stop(now + 0.032);
+  const master = a.createGain();
+  master.gain.setValueAtTime(0.28, now);
+  master.connect(a.destination);
+  // 高めのトーン + 倍音
+  [[1200, 0.9], [2400, 0.3]].forEach(([f, amp]) => {
+    const osc = a.createOscillator(), g = a.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(f, now);
+    g.gain.setValueAtTime(amp, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.055);
+    osc.connect(g); g.connect(master);
+    osc.start(now); osc.stop(now + 0.065);
+  });
+  // クリックノイズ
+  const { node: cn, src: cs } = makeClickNode(a, 3000, 0.010);
+  const cg = a.createGain();
+  cg.gain.setValueAtTime(1.0, now);
+  cg.gain.exponentialRampToValueAtTime(0.001, now + 0.010);
+  cn.connect(cg); cg.connect(master);
+  cs.start(now); cs.stop(now + 0.015);
+}
+
+// 鍵枯渇音: くぐもった解錠音
+function playKeyDepletedSound() {
+  const a = ac(), now = a.currentTime;
+  const master = a.createGain();
+  master.gain.setValueAtTime(0.30, now);
+  master.connect(a.destination);
+  const lp = a.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.setValueAtTime(400, now);
+  lp.frequency.exponentialRampToValueAtTime(180, now + 0.22);
+  lp.connect(master);
+  [[220, 0.9], [330, 0.4]].forEach(([f, amp]) => {
+    const osc = a.createOscillator(), g = a.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(f, now);
+    osc.frequency.linearRampToValueAtTime(f * 0.6, now + 0.25);
+    g.gain.setValueAtTime(amp, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+    osc.connect(g); g.connect(lp);
+    osc.start(now); osc.stop(now + 0.32);
+  });
+  const { node: cn, src: cs } = makeClickNode(a, 300, 0.018);
+  const cg = a.createGain();
+  cg.gain.setValueAtTime(0.8, now);
+  cg.gain.exponentialRampToValueAtTime(0.001, now + 0.020);
+  cn.connect(cg); cg.connect(lp);
+  cs.start(now); cs.stop(now + 0.025);
 }
 
 function playDraftSkipSound() {
@@ -1618,7 +1661,9 @@ function tryUnlock(dx, dy) {
     const dmg = Math.max(1, Math.round(comboMult * mods.globalDmgMult * redDmgBonus * untouchedMult * (crit ? critBonus : 1)));
 
     if (hasKey) {
+      const prevDur = slot.dur;
       slot.dur = Math.max(0, slot.dur - (crit ? CFG.DUR_COST_CRIT : CFG.DUR_COST_NORMAL));
+      if (prevDur > 0 && slot.dur === 0) playKeyDepletedSound();
     }
 
     combo++;
