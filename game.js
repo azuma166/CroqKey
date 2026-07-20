@@ -913,7 +913,7 @@ function playHitSound(hitsLanded, maxHp, crit, combo = 0, depleted = false) {
   const t        = Math.min((hitsLanded - 1) / Math.max(maxHp - 1, 1), 1);
   const baseFreq = 220 * Math.pow(4, t * 0.85);
 
-  const masterVol = depleted ? 0.42 : (crit ? 0.52 : 0.32);
+  const masterVol = depleted ? 1.0 : (crit ? 0.52 : 0.32);
   const master = a.createGain();
   master.gain.setValueAtTime(masterVol, now);
   master.connect(a.destination);
