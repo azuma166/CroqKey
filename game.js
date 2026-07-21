@@ -399,8 +399,7 @@ function pickFromTier(catalog, tier) {
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
-function generateInscription() {
-  const rarity = pickRarity();
+function generateInscription(rarity = pickRarity()) {
   const tier   = rarity === RARITY.EPIC ? 'heavy' : rarity === RARITY.RARE ? 'medium' : 'light';
   let buff   = pickFromTier(BUFF_CATALOG,   tier);
   let debuff = pickFromTier(DEBUFF_CATALOG, tier);
@@ -504,7 +503,8 @@ function openDraft(orbIndex) {
         Array.from({ length: 5 }, () => generateInscription()),
       ];
     } else {
-      draftChoices = [generateInscription(), generateInscription(), generateInscription()];
+      const r = orb.rarity;
+      draftChoices = [generateInscription(r), generateInscription(r), generateInscription(r)];
     }
     state = State.DRAFT;
     draftOpenedAt = performance.now();
