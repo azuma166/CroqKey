@@ -1560,8 +1560,7 @@ function pointerDown(sx, sy) {
         touch = null; return;
       }
       if (inBox(btn.cancel, sx, sy)) {
-        fusionSlotA = -1; fusionSlotB = -1;
-        state = State.IDLE;
+        fusionSlotA = -1; fusionSlotB = -1; // 選択し直し、FUSION_SELECT継続
       }
       touch = null; return;
     }
