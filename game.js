@@ -843,7 +843,9 @@ function allColorsFused() {
   return keySlots.some(s => COLORS.every(c => s.colors.includes(c)));
 }
 
+const KEY_DROP_CAP = 30;
 function dropKey(x, y, color) {
+  if (keyDrops.length >= KEY_DROP_CAP) keyDrops.splice(0, 1); // remove oldest
   keyDrops.push({ x, y, color, age: 0 });
 }
 
@@ -1915,6 +1917,11 @@ function enterPhantomMode() {
   phantomMode = true;
   playPhantomEnterSound();
   screenFlash = { r: 200, g: 255, b: 240, alpha: 0.40 };
+  // Clear floor clutter
+  keyDrops.length = 0;
+  for (let i = inscriptionOrbs.length - 1; i >= 0; i--) {
+    if (inscriptionOrbs[i].type === 'normal') inscriptionOrbs.splice(i, 1);
+  }
   // Convert all alive enemies to enemy_boost orbs (same as existing ones)
   for (const e of enemies) {
     if (!e.alive) continue;
@@ -2151,6 +2158,15 @@ function update() {
         }
       }
     }
+  }
+
+  // Compact dead enemies when array grows large (keeps per-frame iteration cost bounded)
+  if (enemies.length > 120) {
+    let w = 0;
+    for (let i = 0; i < enemies.length; i++) {
+      if (enemies[i].alive) enemies[w++] = enemies[i];
+    }
+    enemies.length = w;
   }
 
   // Continuous enemy trickle (suppressed during phantom mode)
