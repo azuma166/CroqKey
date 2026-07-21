@@ -356,6 +356,7 @@ function applyInscriptionMod(m, entry) {
     case 'incomingDmgBonus': m.incomingDmgBonus += v; break;
     case 'fusionEarlySpawn': m.fusionEarlySpawn += v; break;
     case 'redDmgMult':             m.redDmgMult             *= v; break;
+    case 'redDmgFlat':             m.redDmgFlat             += v; break;
     case 'redCritMult':            m.redCritMult            += v; break;
     case 'blueSlowDuration':       m.blueSlowDuration       += v; break;
     case 'yellowChainDmgBonus':    m.yellowChainDmgBonus    += v; break;
@@ -828,6 +829,9 @@ function addFx(type, x, y, opts = {}) {
 // ══════════════════════════════════════════════
 const keyDrops = [];
 const KEY_DROP_CHANCE  = 1.00;  // probability an enemy drops a key
+function effectiveDropChance() {
+  return Math.max(0.05, KEY_DROP_CHANCE + getMods().keyDropChanceMult);
+}
 const KEY_PICK_RADIUS  = 28;    // auto-collect distance
 const KEY_BOB_AMP      = 3.5;   // pixel amplitude of bob
 const KEY_BOB_SPEED    = 2.2;   // radians/s
@@ -1643,8 +1647,9 @@ function tryUnlock(dx, dy) {
     const isRed = slotColors.includes('red');
     const redDmgBonus = isRed ? mods.redDmgMult : 1;
     const critBonus = 2 + mods.critMult + (crit && isRed ? mods.redCritMult : 0);
-    const untouchedMult = mods.untouchedBonus > 0 ? (1 + 0.05 * untouchedStreak) : 1;
-    const dmg = Math.max(1, Math.round(comboMult * mods.globalDmgMult * redDmgBonus * untouchedMult * (crit ? critBonus : 1)));
+    const untouchedMult = mods.untouchedBonus > 0 && untouchedStreak > 0 ? 1.5 : 1;
+    const baseDmg = Math.round(comboMult * mods.globalDmgMult * redDmgBonus * untouchedMult * (crit ? critBonus : 1));
+    const dmg = Math.max(1, baseDmg + (isRed ? mods.redDmgFlat : 0));
 
     if (hasKey) {
       const prevDur = slot.dur;
@@ -1745,7 +1750,7 @@ function applyKeyEffect(keyCol, target) {
         e.alive = false;
         score++;
         killCount++;
-        if (Math.random() < KEY_DROP_CHANCE) dropKey(e.x, e.y, e.color);
+        if (Math.random() < effectiveDropChance()) dropKey(e.x, e.y, e.color);
         addFx('explosion', e.x, e.y, { color: COLOR_HEX[e.color], maxAge: 45 });
       }
       hits++;
@@ -1770,7 +1775,7 @@ function applyKeyEffect(keyCol, target) {
           e.alive = false;
           score++;
           killCount++;
-          if (Math.random() < KEY_DROP_CHANCE) dropKey(e.x, e.y, e.color);
+          if (Math.random() < effectiveDropChance()) dropKey(e.x, e.y, e.color);
           addFx('explosion', e.x, e.y, { color: COLOR_HEX[e.color], maxAge: 45 });
           if (mods.bombChainOnKill > 0) {
             const chainR = BOMB_R * 0.6, chainDmg = Math.max(1, bombDmg - 1);
@@ -1779,7 +1784,7 @@ function applyKeyEffect(keyCol, target) {
               if (!e2.alive || e2 === e) continue;
               if (Math.hypot(e2.x - e.x, e2.y - e.y) < chainR) {
                 e2.hp = Math.max(0, e2.hp - chainDmg);
-                if (e2.hp <= 0) { e2.alive = false; score++; killCount++; if (Math.random() < KEY_DROP_CHANCE) dropKey(e2.x, e2.y, e2.color); addFx('explosion', e2.x, e2.y, { color: COLOR_HEX[e2.color], maxAge: 45 }); }
+                if (e2.hp <= 0) { e2.alive = false; score++; killCount++; if (Math.random() < effectiveDropChance()) dropKey(e2.x, e2.y, e2.color); addFx('explosion', e2.x, e2.y, { color: COLOR_HEX[e2.color], maxAge: 45 }); }
               }
             }
           }
@@ -1847,7 +1852,7 @@ function fullyUnlock(enemy) {
         addFx('hit', e.x, e.y, { color: '#ffdd88', maxAge: 18, crit: false, dmg: splashDmg });
         if (e.hp <= 0) {
           e.alive = false; score++; killCount++;
-          if (Math.random() < KEY_DROP_CHANCE) dropKey(e.x, e.y, e.color);
+          if (Math.random() < effectiveDropChance()) dropKey(e.x, e.y, e.color);
           addFx('explosion', e.x, e.y, { color: COLOR_HEX[e.color], maxAge: 45 });
         }
       }
@@ -1868,7 +1873,7 @@ function fullyUnlock(enemy) {
   // Drop all component color keys for fusion enemies
   const dropColors = enemy.fusion ? enemy.colors : [enemy.color];
   for (const dc of dropColors) {
-    if (Math.random() < KEY_DROP_CHANCE) dropKey(enemy.x, enemy.y, dc);
+    if (Math.random() < effectiveDropChance()) dropKey(enemy.x, enemy.y, dc);
   }
 
   // Purple: death explosion — damages player if within 150px (including fusion with purple)
