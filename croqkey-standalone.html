@@ -104,10 +104,10 @@ const BUFF_CATALOG = {
     { id:'B-P1', label: '紫ボム半径 +25%',       key: 'purpleBombRadMult',     val: 0.25 },
     { id:'B-P2', label: '紫ボムダメ +1',         key: 'purpleBombDmg',         val: 1    },
     { id:'B-D1', label: '全ダメ +15%',           key: 'globalDmgMult',         val: 1.15 },
-    { id:'B-D2', label: 'クリット倍率 +1.5',     key: 'critMult',              val: 1.5  },
+    { id:'B-D2', label: 'クリット倍率 +1.2',     key: 'critMult',              val: 1.2  },
     { id:'B-D3', label: '色不一致クリット 50%',  key: 'mismatchCritChance',    val: 0.50 },
     { id:'B-D4', label: '撃破余波ダメ 1',        key: 'splashDmgOnKill',       val: 1    },
-    { id:'B-C1', label: 'コンボ係数 +0.5',      key: 'comboCoeff',            val: 0.5  },
+    { id:'B-C1', label: 'コンボ係数 +0.3',      key: 'comboCoeff',            val: 0.3  },
     { id:'B-C2', label: 'ミス許容 1回',          key: 'comboForgives',         val: 1    },
     { id:'B-C4', label: '許容角 +10°',           key: 'flickTolerance',        val: 10 * Math.PI / 180 },
     { id:'B-S1', label: '最大HP +1',             key: 'maxHpBonus',            val: 1    },
@@ -133,10 +133,10 @@ const BUFF_CATALOG = {
     { id:'B-P1', label: '紫ボム半径 +45%',        key: 'purpleBombRadMult',     val: 0.45 },
     { id:'B-P2', label: '紫ボムダメ +2',          key: 'purpleBombDmg',         val: 2    },
     { id:'B-D1', label: '全ダメ +30%',            key: 'globalDmgMult',         val: 1.30 },
-    { id:'B-D2', label: 'クリット倍率 +2.0',      key: 'critMult',              val: 2.0  },
+    { id:'B-D2', label: 'クリット倍率 +1.5',      key: 'critMult',              val: 1.5  },
     { id:'B-D3', label: '色不一致クリット 70%',   key: 'mismatchCritChance',    val: 0.70 },
     { id:'B-D4', label: '撃破余波ダメ 2',         key: 'splashDmgOnKill',       val: 2    },
-    { id:'B-C1', label: 'コンボ係数 +1.0',       key: 'comboCoeff',            val: 1.0  },
+    { id:'B-C1', label: 'コンボ係数 +0.5',       key: 'comboCoeff',            val: 0.5  },
     { id:'B-C2', label: 'ミス許容 1回',           key: 'comboForgives',         val: 1    },
     { id:'B-C4', label: '許容角 +15°',            key: 'flickTolerance',        val: 15 * Math.PI / 180 },
     { id:'B-S1', label: '最大HP +2',              key: 'maxHpBonus',            val: 2    },
@@ -163,10 +163,10 @@ const BUFF_CATALOG = {
     { id:'B-P1', label: '紫ボム半径 +80%',        key: 'purpleBombRadMult',     val: 0.80 },
     { id:'B-P2', label: '紫ボムダメ +3',          key: 'purpleBombDmg',         val: 3    },
     { id:'B-D1', label: '全ダメ +50%',            key: 'globalDmgMult',         val: 1.50 },
-    { id:'B-D2', label: 'クリット倍率 +3.0',      key: 'critMult',              val: 3.0  },
+    { id:'B-D2', label: 'クリット倍率 +2.0',      key: 'critMult',              val: 2.0  },
     { id:'B-D3', label: '色不一致クリット 100%',   key: 'mismatchCritChance',    val: 1.00 },
     { id:'B-D4', label: '撃破余波ダメ 3',         key: 'splashDmgOnKill',       val: 3    },
-    { id:'B-C1', label: 'コンボ係数 +1.5',       key: 'comboCoeff',            val: 1.5  },
+    { id:'B-C1', label: 'コンボ係数 +1.0',       key: 'comboCoeff',            val: 1.0  },
     { id:'B-C2', label: 'ミス許容 2回',           key: 'comboForgives',         val: 2    },
     { id:'B-C4', label: '許容角 +25°',            key: 'flickTolerance',        val: 25 * Math.PI / 180 },
     { id:'B-S1', label: '最大HP +4',              key: 'maxHpBonus',            val: 4    },
@@ -2162,7 +2162,7 @@ function update() {
     const baseMax  = CFG.ENEMY_COUNT + Math.floor(gameTime / 30) + Math.round(mods0.enemyCountBonus) + boostCount;
     const maxCount = Math.min(CFG.ENEMY_COUNT_MAX + Math.round(mods0.enemyCountBonus) + boostCount, baseMax);
     const baseInterval = Math.max(180, CFG.SPAWN_INTERVAL - Math.floor(gameTime / 20) * 40);
-    const interval = Math.max(20, Math.round(baseInterval * (1 + mods0.spawnIntervalMult) / Math.pow(2.0, enemyBoostStacks)));
+    const interval = Math.max(1, Math.round(baseInterval * (1 + mods0.spawnIntervalMult) / Math.pow(1.3, enemyBoostStacks)));
     spawnTimer++;
     if (spawnTimer >= interval && alive < maxCount) {
       spawnEnemy();
