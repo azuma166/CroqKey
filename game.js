@@ -356,6 +356,7 @@ function applyInscriptionMod(m, entry) {
     case 'incomingDmgBonus': m.incomingDmgBonus += v; break;
     case 'fusionEarlySpawn': m.fusionEarlySpawn += v; break;
     case 'redDmgMult':             m.redDmgMult             *= v; break;
+    case 'redDmgFlat':             m.redDmgFlat             += v; break;
     case 'redCritMult':            m.redCritMult            += v; break;
     case 'blueSlowDuration':       m.blueSlowDuration       += v; break;
     case 'yellowChainDmgBonus':    m.yellowChainDmgBonus    += v; break;
@@ -828,6 +829,9 @@ function addFx(type, x, y, opts = {}) {
 // ══════════════════════════════════════════════
 const keyDrops = [];
 const KEY_DROP_CHANCE  = 1.00;  // probability an enemy drops a key
+function effectiveDropChance() {
+  return Math.max(0.05, KEY_DROP_CHANCE + getMods().keyDropChanceMult);
+}
 const KEY_PICK_RADIUS  = 28;    // auto-collect distance
 const KEY_BOB_AMP      = 3.5;   // pixel amplitude of bob
 const KEY_BOB_SPEED    = 2.2;   // radians/s
@@ -1643,8 +1647,9 @@ function tryUnlock(dx, dy) {
     const isRed = slotColors.includes('red');
     const redDmgBonus = isRed ? mods.redDmgMult : 1;
     const critBonus = 2 + mods.critMult + (crit && isRed ? mods.redCritMult : 0);
-    const untouchedMult = mods.untouchedBonus > 0 ? (1 + 0.05 * untouchedStreak) : 1;
-    const dmg = Math.max(1, Math.round(comboMult * mods.globalDmgMult * redDmgBonus * untouchedMult * (crit ? critBonus : 1)));
+    const untouchedMult = mods.untouchedBonus > 0 && untouchedStreak > 0 ? 1.5 : 1;
+    const baseDmg = Math.round(comboMult * mods.globalDmgMult * redDmgBonus * untouchedMult * (crit ? critBonus : 1));
+    const dmg = Math.max(1, baseDmg + (isRed ? mods.redDmgFlat : 0));
 
     if (hasKey) {
       const prevDur = slot.dur;
