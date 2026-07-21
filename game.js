@@ -2029,7 +2029,7 @@ function exitPhantomMode() {
   playPhantomExitSound();
   // Remove and explode all enemy_boost orbs on phantom exit
   for (let i = inscriptionOrbs.length - 1; i >= 0; i--) {
-    if (inscriptionOrbs[i].type === 'enemy_boost' || (inscriptionOrbs[i].type === 'paint' && inscriptionOrbs[i].fromPhantom)) {
+    if (inscriptionOrbs[i].type === 'enemy_boost' || inscriptionOrbs[i].type === 'paint') {
       addFx('explosion', inscriptionOrbs[i].x, inscriptionOrbs[i].y, { color: '#ff4400', maxAge: 45 });
       inscriptionOrbs.splice(i, 1);
     }
