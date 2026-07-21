@@ -767,19 +767,18 @@ function makeFusionEnemy(x, y, components) {
 }
 
 function addEnemy() {
-  const mods = getMods();
   let x, y, tries = 0;
-  const zoomScale = Math.max(0.1, 1 + mods.cameraZoom * 0.4);
-  const minDist = Math.hypot(W() / 2, H() / 2) / zoomScale + 80;
-  const spawnRange = 500;
+  const minDist = 150;
+  const maxDist = Math.max(W(), H()) * 0.7;
   do {
     const a = Math.random() * Math.PI * 2;
-    const d = minDist + Math.random() * spawnRange;
+    const d = minDist + Math.random() * maxDist;
     x = player.x + Math.cos(a) * d;
     y = player.y + Math.sin(a) * d;
   } while (++tries < 20 && Math.hypot(x - player.x, y - player.y) < minDist);
 
   // Fusion chance after threshold — color count grows every 100 kills
+  const mods = getMods();
   const fusionUnlock = FUSION_UNLOCK_KILLS - (mods.fusionEarlySpawn > 0 ? 12 : 0);
   if (killCount >= fusionUnlock && Math.random() < FUSION_CHANCE_BASE) {
     const w = colorWeather();
