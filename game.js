@@ -2545,8 +2545,8 @@ function render() {
 
   ctx.restore();
 
-  // 着彩レイヤー (world の上・UIの下)
-  if (activePaints.length > 0) renderPaintLayers(t);
+  // 着彩レイヤー (world の上・UIの下、幻影中は無効)
+  if (activePaints.length > 0 && !phantomMode) renderPaintLayers(t);
 
   // Phantom hue tint — plain alpha fillRect, no compositing mode (fastest possible)
   if (phantomMode) {
