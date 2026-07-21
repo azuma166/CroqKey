@@ -1801,10 +1801,16 @@ function fullyUnlock(enemy) {
   score++;
   killCount++;
 
-  // Normal inscription orb spawn threshold
-  if (killCount >= nextOrbAt && inscriptionOrbs.length < 3) {
+  // Normal inscription orb spawn threshold (up to 8; oldest normal orb replaced when full)
+  if (killCount >= nextOrbAt) {
     const orbInterval = Math.max(3, Math.round(ORB_INTERVAL_KILLS / Math.max(0.2, 1 + getMods().orbFreqMult + getMods().orbFreqMalus)));
     nextOrbAt = killCount + orbInterval;
+    const normalOrbs = inscriptionOrbs.filter(o => o.type === 'normal');
+    if (normalOrbs.length >= 8) {
+      const oldest = normalOrbs[0];
+      const idx = inscriptionOrbs.indexOf(oldest);
+      if (idx !== -1) inscriptionOrbs.splice(idx, 1);
+    }
     spawnInscriptionOrb();
   }
 
