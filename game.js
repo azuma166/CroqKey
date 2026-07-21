@@ -1468,27 +1468,8 @@ function pointerDown(sx, sy) {
       return;
     }
   }
-  // FUSION_SELECT: select → confirm two-step flow
+  // FUSION_SELECT: tap first slot, tap second slot → immediate fuse (no cancel)
   if (state === State.FUSION_SELECT) {
-    if (fusionSlotB !== -1) {
-      // Confirmation stage: only confirm/cancel buttons are active
-      const btn = fusionConfirmBounds(W(), H());
-      const inBox = (b, x, y) => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
-      if (inBox(btn.confirm, sx, sy)) {
-        fuseSlots(fusionSlotA, fusionSlotB);
-        playFusionCompleteSound();
-        fusionSlotA = -1; fusionSlotB = -1;
-        state = State.IDLE;
-        touch = null; return;
-      }
-      // Cancel (button or anywhere else)
-      fusionSlotA = -1; fusionSlotB = -1;
-      if (!inBox(btn.cancel, sx, sy)) {
-        state = State.IDLE;
-      }
-      touch = null; return;
-    }
-    // Selection stage: tap a slot
     const fslots = keyPanelSlots();
     for (const s of fslots) {
       if (Math.hypot(sx - s.cx, sy - s.cy) < s.r + 10) {
@@ -1496,15 +1477,16 @@ function pointerDown(sx, sy) {
           fusionSlotA = s.idx;
           playFusionSelectSound();
         } else if (s.idx !== fusionSlotA) {
-          fusionSlotB = s.idx;
-          playFusionPreviewSound();
+          fuseSlots(fusionSlotA, s.idx);
+          playFusionCompleteSound();
+          fusionSlotA = -1; fusionSlotB = -1;
+          state = State.IDLE;
         }
         touch = null; return;
       }
     }
-    // Tap outside panel = cancel
-    fusionSlotA = -1; fusionSlotB = -1;
-    state = State.IDLE;
+    // Tap outside panel: ignore (no cancel)
+    touch = null; return;
     touch = null; return;
   }
   // PAUSED: record touch for button detection in pointerUp
@@ -3707,29 +3689,11 @@ function renderFusionSelect(w, h, t) {
       ctx.fillText(nameMap[col] || col, dx, dy + dotR + 13);
     });
 
-    // Confirm / Cancel buttons
-    const btn = fusionConfirmBounds(w, h);
-    ctx.fillStyle = 'rgba(80,200,100,0.18)';
-    ctx.strokeStyle = 'rgba(80,200,100,0.65)';
-    ctx.lineWidth = 1.5;
-    ctx.save();
-    ctx.beginPath(); ctx.roundRect(btn.confirm.x, btn.confirm.y, btn.confirm.w, btn.confirm.h, 9); ctx.fill(); ctx.stroke();
-    ctx.restore();
+    // Both slots chosen — show "融合する" prompt (auto-fuses on second tap)
     ctx.fillStyle = '#7de899';
     ctx.font = 'bold 15px -apple-system, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('融合する', btn.confirm.x + btn.confirm.w / 2, btn.confirm.y + 30);
-
-    ctx.fillStyle = 'rgba(255,255,255,0.07)';
-    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
-    ctx.lineWidth = 1;
-    ctx.save();
-    ctx.beginPath(); ctx.roundRect(btn.cancel.x, btn.cancel.y, btn.cancel.w, btn.cancel.h, 9); ctx.fill(); ctx.stroke();
-    ctx.restore();
-    ctx.fillStyle = 'rgba(255,255,255,0.65)';
-    ctx.font = '14px -apple-system, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('キャンセル', btn.cancel.x + btn.cancel.w / 2, btn.cancel.y + 28);
+    ctx.fillText('融合する', w / 2, h / 2 + 70);
 
     // Pulse highlights on both chosen slots
     const fslots = keyPanelSlots();
@@ -3754,9 +3718,6 @@ function renderFusionSelect(w, h, t) {
       ctx.fillStyle = '#ffcc44';
       ctx.fillText(`「${label}」選択中  →  融合する2つ目をタップ`, cx, 103);
     }
-    ctx.fillStyle = 'rgba(255,255,255,0.3)';
-    ctx.font = '11px -apple-system, sans-serif';
-    ctx.fillText('パネル外タップでキャンセル', cx, 124);
 
     // Pulsing highlight on selected slot A
     if (fusionSlotA !== -1) {
