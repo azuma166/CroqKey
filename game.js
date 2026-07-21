@@ -3915,4 +3915,5 @@ function loop() { update(); render(); requestAnimationFrame(loop); }
 
 initPlayer();
 spawnEnemies();
+orbAnnounce = { label: 'Tap & Flick', color: '#cccccc', age: 0, maxAge: 110, slowFrames: 70 };
 requestAnimationFrame(loop);
