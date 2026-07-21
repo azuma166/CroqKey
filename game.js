@@ -1058,7 +1058,7 @@ function playFusionSelectSound() {
   const gain = a.createGain();
   osc.type = 'triangle';
   osc.frequency.setValueAtTime(880, now);
-  gain.gain.setValueAtTime(0.35, now);
+  gain.gain.setValueAtTime(0.45, now);
   gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
   osc.connect(gain); gain.connect(a.destination);
   osc.start(now); osc.stop(now + 0.25);
@@ -1069,7 +1069,7 @@ function playFusionPreviewSound() {
   const a = ac();
   const now = a.currentTime;
   const master = a.createGain();
-  master.gain.setValueAtTime(0.35, now);
+  master.gain.setValueAtTime(0.45, now);
   master.connect(a.destination);
   [[523.25, 0], [659.26, 0.06]].forEach(([f, delay]) => {
     const osc = a.createOscillator();
@@ -1088,7 +1088,7 @@ function playFusionCompleteSound() {
   const a = ac();
   const now = a.currentTime;
   const master = a.createGain();
-  master.gain.setValueAtTime(0.42, now);
+  master.gain.setValueAtTime(0.45, now);
   master.connect(a.destination);
   [261.63, 329.63, 392, 523.25, 659.26, 783.99].forEach((f, i) => {
     const osc = a.createOscillator();
@@ -1114,7 +1114,7 @@ function playDraftPickSound(rarity) {
   const a = ac();
   const now = a.currentTime;
   const master = a.createGain();
-  master.gain.setValueAtTime(0.38, now);
+  master.gain.setValueAtTime(0.45, now);
   master.connect(a.destination);
 
   if (rarity === RARITY.EPIC) {
@@ -1217,7 +1217,7 @@ function playDraftSkipSound() {
   const a = ac();
   const now = a.currentTime;
   const master = a.createGain();
-  master.gain.setValueAtTime(0.22, now);
+  master.gain.setValueAtTime(0.45, now);
   master.connect(a.destination);
   [[392, 0], [329.63, 0.10]].forEach(([f, delay]) => {
     const osc = a.createOscillator(), g = a.createGain();
@@ -1262,7 +1262,7 @@ function playDamageSound() {
   const a = ac();
   const now = a.currentTime;
   const master = a.createGain();
-  master.gain.setValueAtTime(0.55, now);
+  master.gain.setValueAtTime(0.28, now);
   master.connect(a.destination);
   [[280, 1.0], [140, 0.5]].forEach(([f, amp]) => {
     const osc = a.createOscillator(), g = a.createGain();
@@ -1285,7 +1285,7 @@ function playDamageSound() {
 function playPhantomPickupSound() {
   const a = ac(), now = a.currentTime;
   const master = a.createGain();
-  master.gain.setValueAtTime(0.30, now);
+  master.gain.setValueAtTime(0.45, now);
   master.connect(a.destination);
   // Ethereal rising chime
   [[880, 1320, 0.5], [1320, 2200, 0.3], [2200, 3300, 0.15]].forEach(([f0, f1, amp], i) => {
@@ -1325,7 +1325,7 @@ function playPhantomEnterSound() {
 function playPhantomOrbCollectSound() {
   const a = ac(), now = a.currentTime;
   const master = a.createGain();
-  master.gain.setValueAtTime(0.25, now);
+  master.gain.setValueAtTime(0.45, now);
   master.connect(a.destination);
   const { node: n, src: s } = makeClickNode(a, 1200, 0.015);
   const g = a.createGain();
@@ -1340,7 +1340,7 @@ function playPhantomOrbCollectSound() {
 function playPhantomExitSound() {
   const a = ac(), now = a.currentTime;
   const master = a.createGain();
-  master.gain.setValueAtTime(0.50, now);
+  master.gain.setValueAtTime(0.45, now);
   master.connect(a.destination);
   // Simultaneous shatter — many rapid noise bursts
   for (let i = 0; i < 8; i++) {
@@ -1363,7 +1363,7 @@ function playInfectionSound() {
   const a = ac();
   const now = a.currentTime;
   const master = a.createGain();
-  master.gain.setValueAtTime(0.35, now);
+  master.gain.setValueAtTime(0.45, now);
   master.connect(a.destination);
   // Deep rumble sweep
   [[80, 40, 0.6], [120, 55, 0.4], [200, 90, 0.25]].forEach(([f0, f1, amp], i) => {
@@ -1392,7 +1392,7 @@ function playEnemyBoostKeySound() {
   const a = ac();
   const now = a.currentTime;
   const master = a.createGain();
-  master.gain.setValueAtTime(0.32, now);
+  master.gain.setValueAtTime(0.45, now);
   master.connect(a.destination);
   // Low warning thud (drum-like)
   const thud = a.createOscillator();
