@@ -706,6 +706,8 @@ let activePaints      = [];   // up to 3 cached paint layers
 let paintDraftChoices = [];   // 3 options shown during PAINT_DRAFT
 let paintDraftOpenedAt = 0;
 let infectionOrbSpawned = false; // one-shot flag
+let fusionInsAnnounced  = false; // one-shot announce flag
+let enemyBoostAnnounced = false; // one-shot announce flag
 let untouchedStreak = 0; // B-X5: kills without taking damage
 let comboIdleFrames = 0; // D-R3: frames in IDLE without hitting
 let player_stunTimer = 0; // D-S5: input-freeze frames after hit (legacy; use player.stunTimer)
@@ -1916,10 +1918,10 @@ function fullyUnlock(enemy) {
     nextFusionInsAt += FUSION_INS_INTERVAL;
     if (allColorsFused()) {
       spawnEnemyBoostOrb();
-      orbAnnounce = { label: '敵増加刻印', color: '#ff6622', age: 0, maxAge: 110, slowFrames: 70 };
+      if (!enemyBoostAnnounced) { enemyBoostAnnounced = true; orbAnnounce = { label: '敵増加刻印', color: '#ff6622', age: 0, maxAge: 110, slowFrames: 70 }; }
     } else {
       spawnFusionInscriptionOrb();
-      orbAnnounce = { label: '色融合刻印', color: '#ffcc44', age: 0, maxAge: 110, slowFrames: 70 };
+      if (!fusionInsAnnounced) { fusionInsAnnounced = true; orbAnnounce = { label: '色融合刻印', color: '#ffcc44', age: 0, maxAge: 110, slowFrames: 70 }; }
     }
   }
 
@@ -2103,7 +2105,7 @@ function resetGame() {
   fusionSlotA = -1;
   fusionSlotB = -1;
   score = 0; frame = 0; gameTime = 0; spawnTimer = 0; enemyBoostStacks = 0;
-  infectedMode = false; infectionOrbSpawned = false; orbAnnounce = null;
+  infectedMode = false; infectionOrbSpawned = false; fusionInsAnnounced = false; enemyBoostAnnounced = false; orbAnnounce = null;
   phantomMode = false; phantomOrbSpawned = false; phantomOrbPickedUp = false; phantomHoldFired = false;
   endlessMode = false; activePaints.length = 0; paintDraftChoices = [];
   beamFlash = uiShake = ghostTimer = 0;
