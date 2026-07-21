@@ -650,6 +650,7 @@ let orbAnnounce       = null;  // { label, sub?, color, age, maxAge, slowFrames 
 let phantomOrbSpawned = false;
 let phantomOrbPickedUp = false;
 let phantomMode       = false;
+let phantomHoldFired  = false;
 let infectionOrbSpawned = false; // one-shot flag
 let untouchedStreak = 0; // B-X5: kills without taking damage
 let comboIdleFrames = 0; // D-R3: frames in IDLE without hitting
@@ -766,18 +767,19 @@ function makeFusionEnemy(x, y, components) {
 }
 
 function addEnemy() {
+  const mods = getMods();
   let x, y, tries = 0;
-  const minDist = 150;
-  const maxDist = Math.max(W(), H()) * 0.7;
+  const zoomScale = Math.max(0.1, 1 + mods.cameraZoom * 0.4);
+  const minDist = Math.hypot(W() / 2, H() / 2) / zoomScale + 80;
+  const spawnRange = 500;
   do {
     const a = Math.random() * Math.PI * 2;
-    const d = minDist + Math.random() * maxDist;
+    const d = minDist + Math.random() * spawnRange;
     x = player.x + Math.cos(a) * d;
     y = player.y + Math.sin(a) * d;
   } while (++tries < 20 && Math.hypot(x - player.x, y - player.y) < minDist);
 
   // Fusion chance after threshold — color count grows every 100 kills
-  const mods = getMods();
   const fusionUnlock = FUSION_UNLOCK_KILLS - (mods.fusionEarlySpawn > 0 ? 12 : 0);
   if (killCount >= fusionUnlock && Math.random() < FUSION_CHANCE_BASE) {
     const w = colorWeather();
@@ -1311,11 +1313,11 @@ function playPhantomEnterSound() {
     n.connect(g); g.connect(master);
     s.start(now + i * 0.04); s.stop(now + 0.10 + i * 0.04);
   }
-  // Low rumble thud
+  // Mid-range whoosh (triangle has audible harmonics on phone speakers)
   const osc = a.createOscillator(), tg = a.createGain();
-  osc.type = 'sine';
-  osc.frequency.setValueAtTime(90, now); osc.frequency.exponentialRampToValueAtTime(30, now + 0.35);
-  tg.gain.setValueAtTime(1.0, now); tg.gain.exponentialRampToValueAtTime(0.001, now + 0.38);
+  osc.type = 'triangle';
+  osc.frequency.setValueAtTime(320, now); osc.frequency.exponentialRampToValueAtTime(110, now + 0.35);
+  tg.gain.setValueAtTime(0.9, now); tg.gain.exponentialRampToValueAtTime(0.001, now + 0.38);
   osc.connect(tg); tg.connect(master); osc.start(now); osc.stop(now + 0.40);
 }
 
@@ -1348,10 +1350,10 @@ function playPhantomExitSound() {
     n.connect(g); g.connect(master);
     s.start(now + i * 0.015); s.stop(now + 0.08 + i * 0.015);
   }
-  // Reverberant low boom
+  // Mid boom (triangle for audibility on phone speakers)
   const osc = a.createOscillator(), bg = a.createGain();
-  osc.type = 'sine';
-  osc.frequency.setValueAtTime(60, now); osc.frequency.exponentialRampToValueAtTime(20, now + 0.5);
+  osc.type = 'triangle';
+  osc.frequency.setValueAtTime(240, now); osc.frequency.exponentialRampToValueAtTime(80, now + 0.5);
   bg.gain.setValueAtTime(1.0, now); bg.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
   osc.connect(bg); bg.connect(master); osc.start(now); osc.stop(now + 0.58);
 }
@@ -1362,10 +1364,10 @@ function playInfectionSound() {
   const master = a.createGain();
   master.gain.setValueAtTime(0.45, now);
   master.connect(a.destination);
-  // Deep rumble sweep
-  [[80, 40, 0.6], [120, 55, 0.4], [200, 90, 0.25]].forEach(([f0, f1, amp], i) => {
+  // Ominous downward sweep (triangle for harmonics audible on phone speakers)
+  [[220, 90, 0.7], [330, 140, 0.5], [550, 220, 0.3]].forEach(([f0, f1, amp], i) => {
     const osc = a.createOscillator(), g = a.createGain();
-    osc.type = 'sine';
+    osc.type = 'triangle';
     osc.frequency.setValueAtTime(f0, now + i * 0.05);
     osc.frequency.exponentialRampToValueAtTime(f1, now + 0.6 + i * 0.05);
     g.gain.setValueAtTime(amp, now + i * 0.05);
@@ -1379,7 +1381,7 @@ function playInfectionSound() {
   shimmer.frequency.setValueAtTime(1200, now);
   shimmer.frequency.linearRampToValueAtTime(800, now + 1.0);
   sg.gain.setValueAtTime(0.0, now);
-  sg.gain.linearRampToValueAtTime(0.18, now + 0.15);
+  sg.gain.linearRampToValueAtTime(0.35, now + 0.15);
   sg.gain.exponentialRampToValueAtTime(0.001, now + 1.1);
   shimmer.connect(sg); sg.connect(master);
   shimmer.start(now); shimmer.stop(now + 1.2);
@@ -1391,32 +1393,32 @@ function playEnemyBoostKeySound() {
   const master = a.createGain();
   master.gain.setValueAtTime(0.45, now);
   master.connect(a.destination);
-  // Low warning thud (drum-like)
+  // Warning thud — triangle for odd harmonics (audible on phone speakers)
   const thud = a.createOscillator();
   const tg = a.createGain();
-  thud.type = 'sine';
-  thud.frequency.setValueAtTime(120, now);
-  thud.frequency.exponentialRampToValueAtTime(55, now + 0.12);
+  thud.type = 'triangle';
+  thud.frequency.setValueAtTime(300, now);
+  thud.frequency.exponentialRampToValueAtTime(110, now + 0.18);
   tg.gain.setValueAtTime(1.0, now);
-  tg.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+  tg.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
   thud.connect(tg); tg.connect(master);
-  thud.start(now); thud.stop(now + 0.25);
-  // Short dissonant overtone
+  thud.start(now); thud.stop(now + 0.30);
+  // Dissonant overtone
   const over = a.createOscillator();
   const og = a.createGain();
   over.type = 'sawtooth';
-  over.frequency.setValueAtTime(210, now);
-  og.gain.setValueAtTime(0.28, now);
-  og.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+  over.frequency.setValueAtTime(380, now);
+  og.gain.setValueAtTime(0.35, now);
+  og.gain.exponentialRampToValueAtTime(0.001, now + 0.20);
   over.connect(og); og.connect(master);
-  over.start(now); over.stop(now + 0.20);
+  over.start(now); over.stop(now + 0.22);
   // Noise burst
-  const { node: no, src: ns } = makeClickNode(a, 80, 0.04);
+  const { node: no, src: ns } = makeClickNode(a, 200, 0.04);
   const ng = a.createGain();
-  ng.gain.setValueAtTime(0.5, now);
-  ng.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+  ng.gain.setValueAtTime(0.6, now);
+  ng.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
   no.connect(ng); ng.connect(master);
-  ns.start(now); ns.stop(now + 0.05);
+  ns.start(now); ns.stop(now + 0.06);
 }
 
 // ══════════════════════════════════════════════
@@ -1511,6 +1513,7 @@ function pointerDown(sx, sy) {
   }
   if (handlePanelTap(sx, sy)) return;
   touch = { sx, sy, t: performance.now() };
+  phantomHoldFired = false;
 
   if (state === State.IDLE) {
     // Enemy tap? (convert screen → world)
@@ -1561,9 +1564,8 @@ function pointerUp(sx, sy) {
     return;
   }
 
-  // Phantom mode toggle: long-press (no significant movement) in IDLE
+  // Phantom mode toggle: fires during hold (phantomHoldFired); on release just consume the touch
   if (phantomOrbPickedUp && state === State.IDLE && dt >= PHANTOM_HOLD_MS && dist < 25) {
-    if (phantomMode) exitPhantomMode(); else enterPhantomMode();
     touch = null;
     return;
   }
@@ -1907,7 +1909,7 @@ function fullyUnlock(enemy) {
   connectedEnemy = null;
   state          = State.IDLE;
   ghostTimer     = 0;
-  if (enemies.every(e => !e.alive)) setTimeout(() => spawnEnemies(), 1200);
+  if (enemies.every(e => !e.alive)) setTimeout(() => { if (!enemies.some(e => e.alive)) spawnEnemies(); }, 1200);
 }
 
 function enterPhantomMode() {
@@ -1926,9 +1928,9 @@ function enterPhantomMode() {
 function exitPhantomMode() {
   phantomMode = false;
   playPhantomExitSound();
-  // Remove and explode all phantom-created enemy_boost orbs
+  // Remove and explode all enemy_boost orbs on phantom exit
   for (let i = inscriptionOrbs.length - 1; i >= 0; i--) {
-    if (inscriptionOrbs[i].fromPhantom) {
+    if (inscriptionOrbs[i].type === 'enemy_boost') {
       addFx('explosion', inscriptionOrbs[i].x, inscriptionOrbs[i].y, { color: '#ff4400', maxAge: 45 });
       inscriptionOrbs.splice(i, 1);
     }
@@ -2000,7 +2002,7 @@ function resetGame() {
   fusionSlotB = -1;
   score = 0; frame = 0; gameTime = 0; spawnTimer = 0; enemyBoostStacks = 0;
   infectedMode = false; infectionOrbSpawned = false; orbAnnounce = null;
-  phantomMode = false; phantomOrbSpawned = false; phantomOrbPickedUp = false;
+  phantomMode = false; phantomOrbSpawned = false; phantomOrbPickedUp = false; phantomHoldFired = false;
   beamFlash = uiShake = ghostTimer = 0;
   screenFlash = null; connectedEnemy = null;
   combo = 0; maxCombo = 0; killCount = 0; comboMissCount = 0;
@@ -2076,6 +2078,14 @@ function update() {
   }
 
   updateCamera();
+
+  // Phantom hold-to-toggle: fire at threshold while finger is still down
+  if (touch && phantomOrbPickedUp && state === State.IDLE && !phantomHoldFired) {
+    if (performance.now() - touch.t >= PHANTOM_HOLD_MS) {
+      phantomHoldFired = true;
+      if (phantomMode) exitPhantomMode(); else enterPhantomMode();
+    }
+  }
 
   // Enemies
   for (const e of enemies) {
