@@ -64,7 +64,7 @@ const FUSION_INS_INTERVAL = 100; // one fusion inscription orb every 100 kills a
 const INFECTION_KILLS     = 1000; // infection inscription spawns once at 1000 kills
 const PHANTOM_KILLS       = 1500; // phantom inscription spawns once at 1500 kills
 const PHANTOM_HOLD_MS     = 700;  // hold duration to toggle phantom mode
-const ENDLESS_THRESHOLD   = 20;   // enemy_boost stacks to trigger endless / paint mode
+const ENDLESS_THRESHOLD   = 25;   // enemy_boost stacks to trigger endless / paint mode
 
 // ── 着彩刻印カタログ ─────────────────────────────────────────────────────────
 const PAINT_PAIRS = [
@@ -1581,17 +1581,21 @@ function pointerDown(sx, sy) {
     // Tap outside panel: ignore
     touch = null; return;
   }
-  // PAINT_DRAFT: pick one of 3 paint choices
+  // PAINT_DRAFT: pick one of 3 paint choices, skip, or reset
   if (state === State.PAINT_DRAFT) {
     if (performance.now() - paintDraftOpenedAt >= 700) {
-      const bounds = paintDraftCardBounds(W(), H());
-      for (const b of bounds) {
+      const { cards, skip, reset } = paintDraftAllBounds(W(), H());
+      for (const b of cards) {
         if (sx >= b.x && sx <= b.x + b.w && sy >= b.y && sy <= b.y + b.h) {
           applyPaintInscription(paintDraftChoices[b.index]);
-          paintDraftChoices = [];
-          state = State.IDLE;
-          break;
+          paintDraftChoices = []; state = State.IDLE; break;
         }
+      }
+      if (sx >= skip.x && sx <= skip.x + skip.w && sy >= skip.y && sy <= skip.y + skip.h) {
+        paintDraftChoices = []; state = State.IDLE;
+      }
+      if (sx >= reset.x && sx <= reset.x + reset.w && sy >= reset.y && sy <= reset.y + reset.h) {
+        activePaints.length = 0; paintDraftChoices = []; state = State.IDLE;
       }
     }
     touch = null; return;
@@ -1602,14 +1606,6 @@ function pointerDown(sx, sy) {
     return;
   }
   if (handlePanelTap(sx, sy)) return;
-  // Paint reset button (bottom center, shown when activePaints > 0)
-  if (activePaints.length > 0) {
-    const rb = paintResetBounds(W(), H());
-    if (sx >= rb.x && sx <= rb.x + rb.w && sy >= rb.y && sy <= rb.y + rb.h) {
-      activePaints.length = 0;
-      touch = null; return;
-    }
-  }
   touch = { sx, sy, t: performance.now() };
   phantomHoldFired = false;
 
@@ -2414,18 +2410,18 @@ function renderPaintLayers(t) {
   }
 }
 
-function paintDraftCardBounds(w, h) {
+function paintDraftAllBounds(w, h) {
   const cardW = Math.min((w - 64) / 3, 170);
-  const cardH = 180;
+  const cardH = 160;
   const totalW = cardW * 3 + 24;
   const startX = (w - totalW) / 2;
-  const cardY = h / 2 - cardH / 2 - 10;
-  return [0, 1, 2].map(i => ({ x: startX + i * (cardW + 12), y: cardY, w: cardW, h: cardH, index: i }));
-}
-
-function paintResetBounds(w, h) {
-  const bw = 110, bh = 30;
-  return { x: w / 2 - bw / 2, y: h - 52, w: bw, h: bh };
+  const cardY = h / 2 - cardH / 2 - 30;
+  const cards = [0, 1, 2].map(i => ({ x: startX + i * (cardW + 12), y: cardY, w: cardW, h: cardH, index: i }));
+  const btnY = cardY + cardH + 18;
+  const btnW = Math.min(totalW / 2 - 8, 150), btnH = 40;
+  const skip  = { x: w / 2 - btnW - 6, y: btnY, w: btnW, h: btnH };
+  const reset = { x: w / 2 + 6,        y: btnY, w: btnW, h: btnH };
+  return { cards, skip, reset };
 }
 
 function drawPaintColorBar(cx2, cy2, bw, bh, pair) {
@@ -2462,45 +2458,50 @@ function drawPaintColorBar(cx2, cy2, bw, bh, pair) {
 }
 
 function renderPaintDraft(w, h, t) {
-  // Dim overlay
   ctx.fillStyle = 'rgba(0,0,0,0.72)';
   ctx.fillRect(0, 0, w, h);
-  // Title
   ctx.fillStyle = '#ffeeaa';
   ctx.font = 'bold 17px -apple-system, sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('着彩刻印', w / 2, h / 2 - 110);
+  ctx.fillText('着彩刻印', w / 2, h / 2 - 120);
 
-  const bounds = paintDraftCardBounds(w, h);
-  for (const b of bounds) {
+  const { cards, skip, reset } = paintDraftAllBounds(w, h);
+  for (const b of cards) {
     const p = paintDraftChoices[b.index];
     if (!p) continue;
-    // Card
+    // Card bg
     ctx.fillStyle = 'rgba(20,15,35,0.88)';
     ctx.strokeStyle = 'rgba(220,200,255,0.38)';
     ctx.lineWidth = 1.5;
     ctx.save(); ctx.beginPath(); ctx.roundRect(b.x, b.y, b.w, b.h, 10); ctx.fill(); ctx.stroke(); ctx.restore();
     // Color preview bar
-    ctx.save(); ctx.beginPath(); ctx.roundRect(b.x + 8, b.y + 10, b.w - 16, 28, 4); ctx.clip();
-    drawPaintColorBar(b.x + 8, b.y + 10, b.w - 16, 28, p.pair);
+    ctx.save(); ctx.beginPath(); ctx.roundRect(b.x + 8, b.y + 10, b.w - 16, 26, 4); ctx.clip();
+    drawPaintColorBar(b.x + 8, b.y + 10, b.w - 16, 26, p.pair);
     ctx.restore();
-    // Name
+    // Pair name — large
     ctx.fillStyle = '#eeddff';
-    ctx.font = 'bold 14px -apple-system, sans-serif';
+    ctx.font = 'bold 22px -apple-system, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(p.pair.name, b.x + b.w / 2, b.y + 60);
-    // Attributes line
-    ctx.fillStyle = 'rgba(200,180,255,0.75)';
-    ctx.font = '11px -apple-system, sans-serif';
-    const blendLabel = { '沈': '乗算', '昇': 'スクリーン', '冴': 'オーバーレイ', '載': '通常' }[p.blend.char] || p.blend.char;
-    const motionLabel = { '凪': '静止', '遷': 'ドリフト', '脈': '脈動', '転': '回転' }[p.motion.char] || p.motion.char;
-    const densityLabel = { '淡': '淡', '半': '中', '濃': '濃' }[p.density.char] || p.density.char;
-    ctx.fillText(`${blendLabel}・${motionLabel}・${densityLabel}`, b.x + b.w / 2, b.y + 80);
-    // Full name small
-    ctx.fillStyle = 'rgba(255,255,255,0.35)';
-    ctx.font = '10px -apple-system, sans-serif';
-    ctx.fillText(p.name, b.x + b.w / 2, b.y + 98);
+    ctx.fillText(p.pair.name, b.x + b.w / 2, b.y + 82);
+    // Attribute code — small sub
+    ctx.fillStyle = 'rgba(200,180,255,0.70)';
+    ctx.font = '12px -apple-system, sans-serif';
+    ctx.fillText(`${p.blend.char}/${p.motion.char}/${p.density.char}`, b.x + b.w / 2, b.y + 102);
   }
+
+  // Bottom buttons
+  const drawBtn = (b, label, col, strokeCol) => {
+    ctx.fillStyle = col;
+    ctx.strokeStyle = strokeCol;
+    ctx.lineWidth = 1.2;
+    ctx.save(); ctx.beginPath(); ctx.roundRect(b.x, b.y, b.w, b.h, 8); ctx.fill(); ctx.stroke(); ctx.restore();
+    ctx.fillStyle = 'rgba(255,255,255,0.80)';
+    ctx.font = '13px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(label, b.x + b.w / 2, b.y + 25);
+  };
+  drawBtn(skip,  '選ばない',   'rgba(40,35,55,0.80)',  'rgba(200,180,255,0.35)');
+  drawBtn(reset, '着彩リセット', 'rgba(55,25,25,0.80)', 'rgba(255,160,160,0.40)');
 }
 
 function renderPaintResetButton(w, h) {
@@ -2568,7 +2569,6 @@ function render() {
   renderKeyPanel(t);
   renderHUD(w, h);
   if (orbAnnounce) renderOrbAnnounce(w, h);
-  renderPaintResetButton(w, h);
   if (state === State.GAMEOVER) renderGameOver(w, h);
   if (state === State.DRAFT)    renderDraft(w, h, t);
   if (state === State.PAUSED)        renderPause(w, h);
