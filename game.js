@@ -508,6 +508,7 @@ function openDraft(orbIndex) {
   const orb = inscriptionOrbs[orbIndex];
   inscriptionOrbs.splice(orbIndex, 1);
   if (orb.type === 'paint') {
+    playPaintPickupSound();
     paintDraftChoices = [generatePaintInscription(), generatePaintInscription(), generatePaintInscription()];
     paintDraftOpenedAt = performance.now();
     state = State.PAINT_DRAFT;
@@ -1473,6 +1474,30 @@ function playEnemyBoostKeySound() {
   ng.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
   no.connect(ng); ng.connect(master);
   ns.start(now); ns.stop(now + 0.06);
+}
+
+function playPaintPickupSound() {
+  const a = ac(), now = a.currentTime;
+  const master = a.createGain();
+  master.gain.setValueAtTime(0.45, now);
+  master.connect(a.destination);
+  // Ascending iridescent arpeggio — staggered sine tones
+  [[523, 0.55], [659, 0.45], [784, 0.35], [1047, 0.25], [1319, 0.18]].forEach(([f, amp], i) => {
+    const osc = a.createOscillator(), g = a.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(f, now + i * 0.055);
+    g.gain.setValueAtTime(amp, now + i * 0.055);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.55 + i * 0.055);
+    osc.connect(g); g.connect(master);
+    osc.start(now + i * 0.055); osc.stop(now + 0.65);
+  });
+  // Shimmer click at the top
+  const { node: cn, src: cs } = makeClickNode(a, 3000, 0.012);
+  const cg = a.createGain();
+  cg.gain.setValueAtTime(0.9, now + 0.22);
+  cg.gain.exponentialRampToValueAtTime(0.001, now + 0.26);
+  cn.connect(cg); cg.connect(master);
+  cs.start(now + 0.22); cs.stop(now + 0.28);
 }
 
 // ══════════════════════════════════════════════
