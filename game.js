@@ -1916,8 +1916,10 @@ function fullyUnlock(enemy) {
     nextFusionInsAt += FUSION_INS_INTERVAL;
     if (allColorsFused()) {
       spawnEnemyBoostOrb();
+      orbAnnounce = { label: '敵増加刻印', color: '#ff6622', age: 0, maxAge: 110, slowFrames: 70 };
     } else {
       spawnFusionInscriptionOrb();
+      orbAnnounce = { label: '色融合刻印', color: '#ffcc44', age: 0, maxAge: 110, slowFrames: 70 };
     }
   }
 
@@ -1925,6 +1927,7 @@ function fullyUnlock(enemy) {
   if (!infectionOrbSpawned && killCount >= INFECTION_KILLS) {
     infectionOrbSpawned = true;
     spawnInfectionOrb();
+    orbAnnounce = { label: '刻印感染', color: '#cc44ff', age: 0, maxAge: 110, slowFrames: 70 };
   }
   // Phantom inscription — one-shot at 1500 kills
   if (!phantomOrbSpawned && killCount >= PHANTOM_KILLS) {
