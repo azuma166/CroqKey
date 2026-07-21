@@ -1935,6 +1935,7 @@ function fullyUnlock(enemy) {
   if (!phantomOrbSpawned && killCount >= PHANTOM_KILLS) {
     phantomOrbSpawned = true;
     spawnPhantomOrb();
+    orbAnnounce = { label: '幻影刻印', color: '#44ffdd', age: 0, maxAge: 110, slowFrames: 70 };
   }
 
   // B-S2: heal on kill chance
