@@ -64,6 +64,44 @@ const FUSION_INS_INTERVAL = 100; // one fusion inscription orb every 100 kills a
 const INFECTION_KILLS     = 1000; // infection inscription spawns once at 1000 kills
 const PHANTOM_KILLS       = 1500; // phantom inscription spawns once at 1500 kills
 const PHANTOM_HOLD_MS     = 700;  // hold duration to toggle phantom mode
+const ENDLESS_THRESHOLD   = 20;   // enemy_boost stacks to trigger endless / paint mode
+
+// ── 着彩刻印カタログ ─────────────────────────────────────────────────────────
+const PAINT_PAIRS = [
+  { name: '夕日', type: 'radial',   colors: ['#ff8c00', '#6a0dad'] },
+  { name: '胡粉', type: 'radial',   colors: ['#ffffff', 'rgba(255,255,255,0)'] },
+  { name: '極彩', type: 'radial',   colors: ['#ff0000','#ff8800','#ffff00','#00cc44','#0055ff'] },
+  { name: '暗幕', type: 'vignette', colors: ['#000000'] },
+  { name: '緋',   type: 'vignette', colors: ['#cc0000'] },
+  { name: '宵闇', type: 'vignette', colors: ['#1a0080'] },
+  { name: '暁',   type: 'linear',   colors: ['#0044cc', '#ffffff'] },
+  { name: '焔',   type: 'linear',   colors: ['#ff2200', '#ff8800', '#ffff00'] },
+  { name: '霧',   type: 'linear',   colors: ['#aaaaaa', '#666666'] },
+  { name: '藍',   type: 'flat',     colors: ['#002288'] },
+  { name: '褪',   type: 'flat',     colors: ['#8b6343'] },
+  { name: '若草', type: 'flat',     colors: ['#44aa44'] },
+  { name: '銀幕', type: 'scanline', colors: ['#888888'] },
+  { name: '走査', type: 'scanline', colors: ['#00cc44'] },
+  { name: '万華', type: 'grid',     colors: null },
+  { name: '羅針', type: 'grid',     colors: ['#4455cc', '#8844cc'] },
+];
+const PAINT_BLENDS = [
+  { char: '沈', op: 'multiply' },
+  { char: '昇', op: 'screen' },
+  { char: '冴', op: 'overlay' },
+  { char: '載', op: 'source-over' },
+];
+const PAINT_MOTIONS = [
+  { char: '凪', type: 'static' },
+  { char: '遷', type: 'drift' },
+  { char: '脈', type: 'pulse' },
+  { char: '転', type: 'rotate' },
+];
+const PAINT_DENSITIES = [
+  { char: '淡', alpha: 0.15 },
+  { char: '半', alpha: 0.35 },
+  { char: '濃', alpha: 0.60 },
+];
 
 // Per-color effect for fusion inscriptions (buff only, no debuff)
 const FUSION_COLOR_EFFECT = {
@@ -430,7 +468,7 @@ function spawnEnemyBoostOrb() {
   const angle = Math.random() * Math.PI * 2;
   const dist  = 450 + Math.random() * 350;
   inscriptionOrbs.push({
-    type:  'enemy_boost',
+    type:  endlessMode ? 'paint' : 'enemy_boost',
     x:     player.x + Math.cos(angle) * dist,
     y:     player.y + Math.sin(angle) * dist,
     pulse: 0,
@@ -469,12 +507,23 @@ function generateFusionInscription() {
 function openDraft(orbIndex) {
   const orb = inscriptionOrbs[orbIndex];
   inscriptionOrbs.splice(orbIndex, 1);
-  if (orb.type === 'enemy_boost') {
+  if (orb.type === 'paint') {
+    paintDraftChoices = [generatePaintInscription(), generatePaintInscription(), generatePaintInscription()];
+    paintDraftOpenedAt = performance.now();
+    state = State.PAINT_DRAFT;
+  } else if (orb.type === 'enemy_boost') {
     enemyBoostStacks++;
     playEnemyBoostKeySound();
     addFx('explosion', player.x, player.y, { color: '#ff4400', maxAge: 35 });
     screenFlash = { r: 220, g: 60, b: 20, alpha: 0.18 };
-    orbAnnounce = { label: '敵増加', color: '#ff6622', age: 0, maxAge: 100, slowFrames: 65 };
+    if (enemyBoostStacks >= ENDLESS_THRESHOLD && !endlessMode) {
+      endlessMode = true;
+      // Convert remaining enemy_boost orbs on field to paint
+      for (const o of inscriptionOrbs) { if (o.type === 'enemy_boost') o.type = 'paint'; }
+      orbAnnounce = { label: 'Endless', color: '#ffdd44', age: 0, maxAge: 140, slowFrames: 90 };
+    } else {
+      orbAnnounce = { label: '敵増加', color: '#ff6622', age: 0, maxAge: 100, slowFrames: 65 };
+    }
   } else if (orb.type === 'infection') {
     infectedMode = true;
     playInfectionSound();
@@ -629,7 +678,7 @@ function s2w(sx, sy) { return { x: sx + cam.x, y: sy + cam.y }; }
 // ══════════════════════════════════════════════
 //  GAME STATE
 // ══════════════════════════════════════════════
-const State = { IDLE: 'idle', CONNECTED: 'connected', GAMEOVER: 'gameover', DRAFT: 'draft', PAUSED: 'paused', FUSION_SELECT: 'fusion_select' };
+const State = { IDLE: 'idle', CONNECTED: 'connected', GAMEOVER: 'gameover', DRAFT: 'draft', PAUSED: 'paused', FUSION_SELECT: 'fusion_select', PAINT_DRAFT: 'paint_draft' };
 let state          = State.IDLE;
 let connectedEnemy = null;
 let score          = 0;
@@ -651,6 +700,10 @@ let phantomOrbSpawned = false;
 let phantomOrbPickedUp = false;
 let phantomMode       = false;
 let phantomHoldFired  = false;
+let endlessMode       = false;
+let activePaints      = [];   // up to 3 cached paint layers
+let paintDraftChoices = [];   // 3 options shown during PAINT_DRAFT
+let paintDraftOpenedAt = 0;
 let infectionOrbSpawned = false; // one-shot flag
 let untouchedStreak = 0; // B-X5: kills without taking damage
 let comboIdleFrames = 0; // D-R3: frames in IDLE without hitting
@@ -1503,6 +1556,20 @@ function pointerDown(sx, sy) {
     }
     // Tap outside panel: ignore
     touch = null; return;
+  }
+  // PAINT_DRAFT: pick one of 3 paint choices
+  if (state === State.PAINT_DRAFT) {
+    if (performance.now() - paintDraftOpenedAt >= 700) {
+      const bounds = paintDraftCardBounds(W(), H());
+      for (const b of bounds) {
+        if (sx >= b.x && sx <= b.x + b.w && sy >= b.y && sy <= b.y + b.h) {
+          applyPaintInscription(paintDraftChoices[b.index]);
+          paintDraftChoices = [];
+          state = State.IDLE;
+          break;
+        }
+      }
+    }
     touch = null; return;
   }
   // PAUSED: record touch for button detection in pointerUp
@@ -1511,6 +1578,14 @@ function pointerDown(sx, sy) {
     return;
   }
   if (handlePanelTap(sx, sy)) return;
+  // Paint reset button (bottom center, shown when activePaints > 0)
+  if (activePaints.length > 0) {
+    const rb = paintResetBounds(W(), H());
+    if (sx >= rb.x && sx <= rb.x + rb.w && sy >= rb.y && sy <= rb.y + rb.h) {
+      activePaints.length = 0;
+      touch = null; return;
+    }
+  }
   touch = { sx, sy, t: performance.now() };
   phantomHoldFired = false;
 
@@ -1924,7 +1999,7 @@ function enterPhantomMode() {
   for (const e of enemies) {
     if (!e.alive) continue;
     e.alive = false;
-    inscriptionOrbs.push({ type: 'enemy_boost', x: e.x, y: e.y, pulse: 0, fromPhantom: true });
+    inscriptionOrbs.push({ type: endlessMode ? 'paint' : 'enemy_boost', x: e.x, y: e.y, pulse: 0, fromPhantom: true });
   }
   orbAnnounce = { label: '幻影', color: '#88ffdd', age: 0, maxAge: 70, slowFrames: 0 };
 }
@@ -1934,7 +2009,7 @@ function exitPhantomMode() {
   playPhantomExitSound();
   // Remove and explode all enemy_boost orbs on phantom exit
   for (let i = inscriptionOrbs.length - 1; i >= 0; i--) {
-    if (inscriptionOrbs[i].type === 'enemy_boost') {
+    if (inscriptionOrbs[i].type === 'enemy_boost' || (inscriptionOrbs[i].type === 'paint' && inscriptionOrbs[i].fromPhantom)) {
       addFx('explosion', inscriptionOrbs[i].x, inscriptionOrbs[i].y, { color: '#ff4400', maxAge: 45 });
       inscriptionOrbs.splice(i, 1);
     }
@@ -2007,6 +2082,7 @@ function resetGame() {
   score = 0; frame = 0; gameTime = 0; spawnTimer = 0; enemyBoostStacks = 0;
   infectedMode = false; infectionOrbSpawned = false; orbAnnounce = null;
   phantomMode = false; phantomOrbSpawned = false; phantomOrbPickedUp = false; phantomHoldFired = false;
+  endlessMode = false; activePaints.length = 0; paintDraftChoices = [];
   beamFlash = uiShake = ghostTimer = 0;
   screenFlash = null; connectedEnemy = null;
   combo = 0; maxCombo = 0; killCount = 0; comboMissCount = 0;
@@ -2037,7 +2113,7 @@ function update() {
     }
     return;
   }
-  if (state === State.DRAFT || state === State.PAUSED || state === State.FUSION_SELECT) return;
+  if (state === State.DRAFT || state === State.PAUSED || state === State.FUSION_SELECT || state === State.PAINT_DRAFT) return;
   frame++;
   gameTime = frame / 60;
 
@@ -2215,6 +2291,207 @@ function update() {
 // ══════════════════════════════════════════════
 //  RENDER
 // ══════════════════════════════════════════════
+// ══════════════════════════════════════════════
+//  着彩刻印
+// ══════════════════════════════════════════════
+
+function generatePaintInscription() {
+  const pair  = PAINT_PAIRS[Math.floor(Math.random() * PAINT_PAIRS.length)];
+  const blend = PAINT_BLENDS[Math.floor(Math.random() * PAINT_BLENDS.length)];
+  let motion  = PAINT_MOTIONS[Math.floor(Math.random() * PAINT_MOTIONS.length)];
+  let density = PAINT_DENSITIES[Math.floor(Math.random() * PAINT_DENSITIES.length)];
+  // Readability clamp: center-covering patterns cannot be 濃
+  if (['flat', 'radial', 'linear'].includes(pair.type) && density.char === '濃') density = PAINT_DENSITIES[1];
+  // Rotate is meaningless on non-grid patterns → treat as static
+  if (motion.type === 'rotate' && pair.type !== 'grid') motion = PAINT_MOTIONS[0];
+  return { pair, blend, motion, density, name: `${pair.name}-${blend.char}/${motion.char}/${density.char}`, cachedLayer: null };
+}
+
+function buildPaintLayer(paint) {
+  const w = W(), h = H();
+  const oc = document.createElement('canvas');
+  oc.width = w; oc.height = h;
+  const c = oc.getContext('2d');
+  const { pair } = paint;
+  if (pair.type === 'radial') {
+    const cx = w / 2, cy = h / 2, r = Math.hypot(cx, cy);
+    const g = c.createRadialGradient(cx, cy, 0, cx, cy, r);
+    if (pair.name === '極彩') {
+      ['#ff0000','#ff8800','#ffff00','#00cc44','#0055ff'].forEach((col, i) => g.addColorStop(i / 4, col));
+    } else {
+      g.addColorStop(0, pair.colors[0]); g.addColorStop(1, pair.colors[1]);
+    }
+    c.fillStyle = g; c.fillRect(0, 0, w, h);
+  } else if (pair.type === 'vignette') {
+    const cx = w / 2, cy = h / 2, r = Math.hypot(cx, cy);
+    const g = c.createRadialGradient(cx, cy, Math.min(w, h) * 0.28, cx, cy, r);
+    g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, pair.colors[0]);
+    c.fillStyle = g; c.fillRect(0, 0, w, h);
+  } else if (pair.type === 'linear') {
+    const g = c.createLinearGradient(0, 0, 0, h);
+    if (pair.name === '焔') {
+      g.addColorStop(0, '#ffff00'); g.addColorStop(0.5, '#ff8800'); g.addColorStop(1, '#ff2200');
+    } else {
+      g.addColorStop(0, pair.colors[0]); g.addColorStop(1, pair.colors[1]);
+    }
+    c.fillStyle = g; c.fillRect(0, 0, w, h);
+  } else if (pair.type === 'flat') {
+    c.fillStyle = pair.colors[0]; c.fillRect(0, 0, w, h);
+  } else if (pair.type === 'scanline') {
+    c.strokeStyle = pair.colors[0]; c.lineWidth = 1;
+    for (let y = 1; y < h; y += 4) { c.beginPath(); c.moveTo(0, y); c.lineTo(w, y); c.stroke(); }
+  } else if (pair.type === 'grid') {
+    const gs = 40;
+    if (pair.name === '万華') {
+      for (let x = 0; x <= w; x += gs) {
+        c.strokeStyle = `hsl(${Math.round(x / w * 360)},90%,60%)`; c.lineWidth = 1;
+        c.beginPath(); c.moveTo(x, 0); c.lineTo(x, h); c.stroke();
+      }
+      for (let y = 0; y <= h; y += gs) {
+        c.strokeStyle = `hsl(${Math.round(y / h * 360)},90%,60%)`; c.lineWidth = 1;
+        c.beginPath(); c.moveTo(0, y); c.lineTo(w, y); c.stroke();
+      }
+    } else {
+      c.strokeStyle = pair.colors[0]; c.lineWidth = 0.8;
+      for (let x = 0; x <= w; x += gs) { c.beginPath(); c.moveTo(x, 0); c.lineTo(x, h); c.stroke(); }
+      for (let y = 0; y <= h; y += gs) { c.beginPath(); c.moveTo(0, y); c.lineTo(w, y); c.stroke(); }
+      c.strokeStyle = pair.colors[1]; c.lineWidth = 0.4;
+      c.beginPath(); c.moveTo(0, 0); c.lineTo(w, h); c.stroke();
+      c.beginPath(); c.moveTo(w, 0); c.lineTo(0, h); c.stroke();
+    }
+  }
+  paint.cachedLayer = oc;
+  paint.cachedW = w; paint.cachedH = h;
+}
+
+function applyPaintInscription(paint) {
+  buildPaintLayer(paint);
+  activePaints.push(paint);
+  if (activePaints.length > 3) activePaints.shift();
+}
+
+function renderPaintLayers(t) {
+  for (const paint of activePaints) {
+    // Rebuild cache if screen size changed
+    if (!paint.cachedLayer || paint.cachedW !== W() || paint.cachedH !== H()) buildPaintLayer(paint);
+    const { motion, density, blend } = paint;
+    ctx.save();
+    ctx.globalCompositeOperation = blend.op;
+    let alpha = density.alpha;
+    if (motion.type === 'pulse') alpha *= 0.7 + 0.3 * Math.sin(t * 1.5);
+    ctx.globalAlpha = alpha;
+    if (motion.type === 'drift') ctx.translate(Math.sin(t * 0.2) * 18, Math.cos(t * 0.15) * 14);
+    else if (motion.type === 'rotate') {
+      const cx = W() / 2, cy = H() / 2;
+      ctx.translate(cx, cy); ctx.rotate(t * 0.04); ctx.translate(-cx, -cy);
+    }
+    ctx.drawImage(paint.cachedLayer, 0, 0);
+    ctx.restore();
+  }
+}
+
+function paintDraftCardBounds(w, h) {
+  const cardW = Math.min((w - 64) / 3, 170);
+  const cardH = 180;
+  const totalW = cardW * 3 + 24;
+  const startX = (w - totalW) / 2;
+  const cardY = h / 2 - cardH / 2 - 10;
+  return [0, 1, 2].map(i => ({ x: startX + i * (cardW + 12), y: cardY, w: cardW, h: cardH, index: i }));
+}
+
+function paintResetBounds(w, h) {
+  const bw = 110, bh = 30;
+  return { x: w / 2 - bw / 2, y: h - 52, w: bw, h: bh };
+}
+
+function drawPaintColorBar(cx2, cy2, bw, bh, pair) {
+  if (pair.type === 'flat') {
+    ctx.fillStyle = pair.colors[0]; ctx.fillRect(cx2, cy2, bw, bh);
+  } else if (pair.type === 'vignette') {
+    const g = ctx.createLinearGradient(cx2, cy2, cx2 + bw, cy2);
+    g.addColorStop(0, pair.colors[0]); g.addColorStop(0.5, 'rgba(0,0,0,0)'); g.addColorStop(1, pair.colors[0]);
+    ctx.fillStyle = g; ctx.fillRect(cx2, cy2, bw, bh);
+  } else if (pair.type === 'linear' || pair.type === 'radial') {
+    if (pair.name === '極彩') {
+      const g = ctx.createLinearGradient(cx2, cy2, cx2 + bw, cy2);
+      ['#ff0000','#ff8800','#ffff00','#00cc44','#0055ff'].forEach((c, i) => g.addColorStop(i / 4, c));
+      ctx.fillStyle = g; ctx.fillRect(cx2, cy2, bw, bh);
+    } else if (pair.name === '焔') {
+      const g = ctx.createLinearGradient(cx2, cy2, cx2 + bw, cy2);
+      g.addColorStop(0, '#ff2200'); g.addColorStop(0.5, '#ff8800'); g.addColorStop(1, '#ffff00');
+      ctx.fillStyle = g; ctx.fillRect(cx2, cy2, bw, bh);
+    } else {
+      const g = ctx.createLinearGradient(cx2, cy2, cx2 + bw, cy2);
+      g.addColorStop(0, pair.colors[0]); g.addColorStop(1, pair.colors[pair.colors.length - 1]);
+      ctx.fillStyle = g; ctx.fillRect(cx2, cy2, bw, bh);
+    }
+  } else if (pair.type === 'scanline') {
+    ctx.fillStyle = '#111'; ctx.fillRect(cx2, cy2, bw, bh);
+    ctx.strokeStyle = pair.colors[0]; ctx.lineWidth = 1;
+    for (let y = cy2 + 2; y < cy2 + bh; y += 4) { ctx.beginPath(); ctx.moveTo(cx2, y); ctx.lineTo(cx2 + bw, y); ctx.stroke(); }
+  } else if (pair.type === 'grid') {
+    ctx.fillStyle = '#111'; ctx.fillRect(cx2, cy2, bw, bh);
+    const gcol = pair.colors ? pair.colors[0] : '#ffffff';
+    ctx.strokeStyle = gcol; ctx.lineWidth = 0.8;
+    for (let x = cx2 + 10; x < cx2 + bw; x += 10) { ctx.beginPath(); ctx.moveTo(x, cy2); ctx.lineTo(x, cy2 + bh); ctx.stroke(); }
+  }
+}
+
+function renderPaintDraft(w, h, t) {
+  // Dim overlay
+  ctx.fillStyle = 'rgba(0,0,0,0.72)';
+  ctx.fillRect(0, 0, w, h);
+  // Title
+  ctx.fillStyle = '#ffeeaa';
+  ctx.font = 'bold 17px -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('着彩刻印', w / 2, h / 2 - 110);
+
+  const bounds = paintDraftCardBounds(w, h);
+  for (const b of bounds) {
+    const p = paintDraftChoices[b.index];
+    if (!p) continue;
+    // Card
+    ctx.fillStyle = 'rgba(20,15,35,0.88)';
+    ctx.strokeStyle = 'rgba(220,200,255,0.38)';
+    ctx.lineWidth = 1.5;
+    ctx.save(); ctx.beginPath(); ctx.roundRect(b.x, b.y, b.w, b.h, 10); ctx.fill(); ctx.stroke(); ctx.restore();
+    // Color preview bar
+    ctx.save(); ctx.beginPath(); ctx.roundRect(b.x + 8, b.y + 10, b.w - 16, 28, 4); ctx.clip();
+    drawPaintColorBar(b.x + 8, b.y + 10, b.w - 16, 28, p.pair);
+    ctx.restore();
+    // Name
+    ctx.fillStyle = '#eeddff';
+    ctx.font = 'bold 14px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(p.pair.name, b.x + b.w / 2, b.y + 60);
+    // Attributes line
+    ctx.fillStyle = 'rgba(200,180,255,0.75)';
+    ctx.font = '11px -apple-system, sans-serif';
+    const blendLabel = { '沈': '乗算', '昇': 'スクリーン', '冴': 'オーバーレイ', '載': '通常' }[p.blend.char] || p.blend.char;
+    const motionLabel = { '凪': '静止', '遷': 'ドリフト', '脈': '脈動', '転': '回転' }[p.motion.char] || p.motion.char;
+    const densityLabel = { '淡': '淡', '半': '中', '濃': '濃' }[p.density.char] || p.density.char;
+    ctx.fillText(`${blendLabel}・${motionLabel}・${densityLabel}`, b.x + b.w / 2, b.y + 80);
+    // Full name small
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.font = '10px -apple-system, sans-serif';
+    ctx.fillText(p.name, b.x + b.w / 2, b.y + 98);
+  }
+}
+
+function renderPaintResetButton(w, h) {
+  if (activePaints.length === 0) return;
+  const rb = paintResetBounds(w, h);
+  ctx.fillStyle = 'rgba(30,20,50,0.75)';
+  ctx.strokeStyle = 'rgba(200,180,255,0.45)';
+  ctx.lineWidth = 1;
+  ctx.save(); ctx.beginPath(); ctx.roundRect(rb.x, rb.y, rb.w, rb.h, 7); ctx.fill(); ctx.stroke(); ctx.restore();
+  ctx.fillStyle = 'rgba(220,200,255,0.75)';
+  ctx.font = '11px -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('着彩リセット', rb.x + rb.w / 2, rb.y + 20);
+}
+
 function render() {
   const w = W(), h = H();
   const t = performance.now() / 1000;
@@ -2243,6 +2520,9 @@ function render() {
 
   ctx.restore();
 
+  // 着彩レイヤー (world の上・UIの下)
+  if (activePaints.length > 0) renderPaintLayers(t);
+
   // Phantom hue tint — plain alpha fillRect, no compositing mode (fastest possible)
   if (phantomMode) {
     const hue = Math.round((t * 25) % 360);
@@ -2264,10 +2544,12 @@ function render() {
   renderKeyPanel(t);
   renderHUD(w, h);
   if (orbAnnounce) renderOrbAnnounce(w, h);
+  renderPaintResetButton(w, h);
   if (state === State.GAMEOVER) renderGameOver(w, h);
   if (state === State.DRAFT)    renderDraft(w, h, t);
   if (state === State.PAUSED)        renderPause(w, h);
   if (state === State.FUSION_SELECT) renderFusionSelect(w, h, t);
+  if (state === State.PAINT_DRAFT)   renderPaintDraft(w, h, t);
 }
 
 
@@ -3210,6 +3492,30 @@ function renderInscriptionOrbs(t) {
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText('+', 0, 0);
       ctx.textBaseline = 'alphabetic';
+    } else if (orb.type === 'paint') {
+      // Iridescent paint orb — slowly cycling hue ring + palette diamond
+      const hue = Math.round((t * 40 + (orb.pulse || 0)) % 360);
+      const r2 = 22 + pulse * 5;
+      ctx.globalAlpha = 0.22 + pulse * 0.15;
+      ctx.strokeStyle = `hsl(${hue},90%,65%)`; ctx.lineWidth = 5;
+      ctx.beginPath(); ctx.arc(0, 0, r2, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([5, 4]); ctx.lineDashOffset = -t * 35;
+      ctx.globalAlpha = 0.50 + pulse * 0.3;
+      ctx.strokeStyle = `hsl(${(hue + 60) % 360},90%,70%)`; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(0, 0, r2 - 6, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 0.85 + pulse * 0.15;
+      ctx.fillStyle = `hsl(${(hue + 120) % 360},80%,40%)`;
+      ctx.strokeStyle = `hsl(${hue},90%,70%)`; ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(0, -12); ctx.lineTo(9, 0); ctx.lineTo(0, 12); ctx.lineTo(-9, 0);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.globalAlpha = 0.9;
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 9px -apple-system, monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('彩', 0, 0);
+      ctx.textBaseline = 'alphabetic';
     } else if (orb.type === 'phantom') {
       // Ethereal cyan phantom orb
       const r = 22 + pulse * 6;
@@ -3296,7 +3602,9 @@ function renderInscriptionEdgeIndicators() {
     const isEnemyBoost = orb.type === 'enemy_boost';
     const isInfection  = orb.type === 'infection';
     const isPhantom    = orb.type === 'phantom';
-    const col = isInfection ? '#cc44ff' : isEnemyBoost ? '#ff4400' : isFusion ? '#ffcc44' : isPhantom ? '#44ffdd' : RARITY_COLOR[orb.rarity];
+    const isPaint      = orb.type === 'paint';
+    const paintEdgeCol = isPaint ? `hsl(${Math.round((performance.now() / 1000 * 40) % 360)},90%,65%)` : '#fff';
+    const col = isInfection ? '#cc44ff' : isEnemyBoost ? '#ff4400' : isFusion ? '#ffcc44' : isPhantom ? '#44ffdd' : isPaint ? paintEdgeCol : RARITY_COLOR[orb.rarity];
     const pulse     = 0.72 + 0.28 * Math.sin(t * 3.8 + (orb.pulse || 0) * 0.05);
 
     ctx.save();
