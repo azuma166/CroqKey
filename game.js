@@ -709,6 +709,7 @@ let infectionOrbSpawned = false; // one-shot flag
 let fusionInsAnnounced  = false; // one-shot announce flag
 let enemyBoostAnnounced = false; // one-shot announce flag
 let normalOrbAnnounced  = false; // one-shot announce flag
+let firstKeyAnnounced   = false; // one-shot: first key pickup announcement
 let untouchedStreak = 0; // B-X5: kills without taking damage
 let comboIdleFrames = 0; // D-R3: frames in IDLE without hitting
 let player_stunTimer = 0; // D-S5: input-freeze frames after hit (legacy; use player.stunTimer)
@@ -932,6 +933,7 @@ function collectKey(color) {
     const actualDur = Math.max(1, Math.round(baseDur * Math.max(0.1, 1 + mods.keyDropDurMult)));
     slot.dur = Math.min(cap, slot.dur + actualDur);
   }
+  if (!firstKeyAnnounced) { firstKeyAnnounced = true; orbAnnounce = { label: 'タップで鍵切替', color: '#6699ff', age: 0, maxAge: 110, slowFrames: 70 }; }
   playKeyPickupSound(color);
 }
 
@@ -1911,7 +1913,7 @@ function fullyUnlock(enemy) {
       if (idx !== -1) inscriptionOrbs.splice(idx, 1);
     }
     spawnInscriptionOrb();
-    if (!normalOrbAnnounced) { normalOrbAnnounced = true; orbAnnounce = { label: '刻印', color: '#aaaaaa', age: 0, maxAge: 110, slowFrames: 70 }; }
+    if (!normalOrbAnnounced) { normalOrbAnnounced = true; orbAnnounce = { label: '刻印出現', color: '#aaaaaa', age: 0, maxAge: 110, slowFrames: 70 }; }
   }
 
   // Fusion inscription orb (200 kills, then every 100)
@@ -2108,7 +2110,7 @@ function resetGame() {
   fusionSlotA = -1;
   fusionSlotB = -1;
   score = 0; frame = 0; gameTime = 0; spawnTimer = 0; enemyBoostStacks = 0;
-  infectedMode = false; infectionOrbSpawned = false; fusionInsAnnounced = false; enemyBoostAnnounced = false; normalOrbAnnounced = false; orbAnnounce = null;
+  infectedMode = false; infectionOrbSpawned = false; fusionInsAnnounced = false; enemyBoostAnnounced = false; normalOrbAnnounced = false; firstKeyAnnounced = false; orbAnnounce = null;
   phantomMode = false; phantomOrbSpawned = false; phantomOrbPickedUp = false; phantomHoldFired = false;
   endlessMode = false; activePaints.length = 0; paintDraftChoices = [];
   beamFlash = uiShake = ghostTimer = 0;
