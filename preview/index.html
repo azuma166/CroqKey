@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="robots" content="noindex">
+  <title>CroqKey — preview</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗝️</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Klee+One:wght@400;600&family=Shippori+Mincho+B1:wght@600;800&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #f3eee2; overscroll-behavior: none; }
+    canvas { display: block; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+    .glyphs { position: absolute; left: -9999px; top: 0; opacity: 0; pointer-events: none; white-space: nowrap; }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <!-- forces the web-font subsets for every glyph the canvas draws -->
+  <div class="glyphs" aria-hidden="true">
+    <span style="font-family:'Klee One';font-weight:600">°×–—…→↓↔─═▲▼⛓　、。「」いうえかがきくぐけげこごさしじすせぜただちっつてでとどなにねのはばひびぶへべまみむめもらりるれわをんアィイェオカキクグコシジスズセタダチッテトドナノヒピフブプベペボポマミムメモャラリルレロンー一万上下不世並中久予代以会伝低体余使係個倍停側傷償充全内円再冴凪出分切初刻前加効動化半単印取可合同向周回囲域基増墨変夕外大失子存宵容察専小少尾帳幕幻度引強弾彩影径後得復心応急性感慣戻手払択押拡拾持指振接損撃播数敵文新方日昇時暁暗替最本束枚果枯染査棲極構次款止残段毎水沈波淡混渇減測濃焔無爆率現生用界痛癒発白目直眼着矢短破硬秒移稀程算範粉糸紙紫組結継続緊緋緑縮羅耐胡脆脈脱自致色若草華落藍融被補褪見視観角解触許質赤走距跡軌転載輝近追送逃這通速造連遅遷選重野量針鈍銀錠鍵鎖長開間闇限除集離霧青音韻頁頻高鳴黄（）＋？0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz&amp;/+-×:!?</span>
+    <span style="font-family:'Shippori Mincho B1';font-weight:800">°×–—…→↓↔─═▲▼⛓　、。「」いうえかがきくぐけげこごさしじすせぜただちっつてでとどなにねのはばひびぶへべまみむめもらりるれわをんアィイェオカキクグコシジスズセタダチッテトドナノヒピフブプベペボポマミムメモャラリルレロンー一万上下不世並中久予代以会伝低体余使係個倍停側傷償充全内円再冴凪出分切初刻前加効動化半単印取可合同向周回囲域基増墨変夕外大失子存宵容察専小少尾帳幕幻度引強弾彩影径後得復心応急性感慣戻手払択押拡拾持指振接損撃播数敵文新方日昇時暁暗替最本束枚果枯染査棲極構次款止残段毎水沈波淡混渇減測濃焔無爆率現生用界痛癒発白目直眼着矢短破硬秒移稀程算範粉糸紙紫組結継続緊緋緑縮羅耐胡脆脈脱自致色若草華落藍融被補褪見視観角解触許質赤走距跡軌転載輝近追送逃這通速造連遅遷選重野量針鈍銀錠鍵鎖長開間闇限除集離霧青音韻頁頻高鳴黄（）＋？0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz&amp;/+-×:!?</span>
+  </div>
+  <script src="game.js?v=202610181200"></script>
+</body>
+</html>
