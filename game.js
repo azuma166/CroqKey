@@ -933,7 +933,7 @@ function collectKey(color) {
     const actualDur = Math.max(1, Math.round(baseDur * Math.max(0.1, 1 + mods.keyDropDurMult)));
     slot.dur = Math.min(cap, slot.dur + actualDur);
   }
-  if (!firstKeyAnnounced) { firstKeyAnnounced = true; orbAnnounce = { label: 'タップで鍵切替', color: '#6699ff', age: 0, maxAge: 110, slowFrames: 70 }; }
+  if (!firstKeyAnnounced && color === 'blue') { firstKeyAnnounced = true; orbAnnounce = { label: 'タップで鍵切替', color: '#6699ff', age: 0, maxAge: 110, slowFrames: 70 }; }
   playKeyPickupSound(color);
 }
 
