@@ -1,6 +1,7 @@
 // ─────────────────────────────────────────────
 //  CroqKey — Core Prototype v2
 // ─────────────────────────────────────────────
+const PREVIEW_BUILD = '10/24 mochi';
 
 // Enemy / key colors
 const COLORS = ['red', 'blue', 'yellow', 'green', 'purple'];
@@ -3367,6 +3368,7 @@ function renderTitle(w, h, t) {
   if (highScore > 0) { ctx.fillStyle = INK2; ctx.font = fnt(11, 600); ctx.fillText(`BEST ${highScore}`, w / 2, cy + 74); }
   ctx.globalAlpha = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(t * 3));
   ctx.fillStyle = INK; ctx.font = fnt(13, 700); ctx.fillText('TAP TO START', w / 2, h * 0.74);
+  ctx.globalAlpha = 1; ctx.fillStyle = INK3; ctx.font = fnt(10, 600); ctx.fillText(`preview ${PREVIEW_BUILD}`, w / 2, h - 24);
   ctx.globalAlpha = 1;
 }
 
