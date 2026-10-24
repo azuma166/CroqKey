@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────
 //  CroqKey — Core Prototype v2
 // ─────────────────────────────────────────────
-const PREVIEW_BUILD = '10/24 mochi';
+const PREVIEW_BUILD = '10/24 key';
 
 // Enemy / key colors
 const COLORS = ['red', 'blue', 'yellow', 'green', 'purple'];
@@ -1787,6 +1787,7 @@ function tryUnlock(dx, dy) {
 
     hintEvent('hit');
     if (crit) hintEvent('crit');
+    onKeySwing(flickAngle);
     connectedEnemy.hp -= dmg;
     connectedEnemy.crackShake = 18;
     beamFlash = 8;
@@ -1822,6 +1823,7 @@ function tryUnlock(dx, dy) {
       uiShake = 10;
     }
     addFx('miss', player.x, player.y, { maxAge: 16 });
+    onKeyMiss();
   }
 }
 
@@ -2847,15 +2849,62 @@ function renderPlayer(t) {
   }
   ctx.restore();
 
-  const slot = activeSlot(), dX = r * 0.72, dY = -r * 0.72, dR = r * 0.28;
-  if (slot.colors.length > 1 && slot.dur > 0) {
-    const g = ctx.createLinearGradient(dX - dR, dY, dX + dR, dY);
-    slot.colors.forEach((c, i) => g.addColorStop(i / (slot.colors.length - 1), COLOR_HEX[c]));
-    ctx.fillStyle = g;
-  } else ctx.fillStyle = slot.dur > 0 ? (COLOR_HEX[slot.colors[0]] || CFG.KEY_COLOR) : '#8c9096';
-  ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.arc(dX, dY, dR, 0, TAU); ctx.fill(); ctx.stroke();
+  // 鍵: held at the body's edge, pointed at the lock while connected; swings along each unlock flick
+  const slot = activeSlot(), hasKey = slot.dur > 0;
+  const keyCol = hasKey ? (COLOR_HEX[slot.colors[0]] || CFG.KEY_COLOR) : '#8c9096';
+  const now = performance.now(), len = r * 1.35;
+  const rest = connectedEnemy
+    ? Math.atan2(connectedEnemy.y - player.y, connectedEnemy.x - player.x)
+    : Math.PI * 0.22 + Math.sin(t * 2.2) * 0.08 - Math.max(-0.5, Math.min(0.5, player.vx * 0.04));
+  let a = rest, ext = 0;
+  const sp = (now - keyFx.swingT) / 230;
+  if (sp >= 0 && sp < 1) {
+    const from = keyFx.swingA - 1.7, to = keyFx.swingA + 0.35;
+    if (sp < 0.35) { const e = easeOut(sp / 0.35); a = from + (to - from) * e; ext = e; }
+    else { const e = easeInOut((sp - 0.35) / 0.65); a = to + angleDiff(rest, to) * e; ext = 1 - e; }
+    if (sp < 0.6) { // swoosh
+      const end = sp < 0.35 ? a : to, R = r * 0.7 + len * 0.9 + r * 0.6;
+      ctx.save(); ctx.lineCap = 'round'; ctx.strokeStyle = keyCol;
+      for (let k = 0; k < 3; k++) {
+        ctx.save();
+        ctx.globalAlpha = (1 - sp / 0.6) * (0.85 - k * 0.22); ctx.lineWidth = 4 - k * 1.2;
+        ctx.beginPath(); ctx.arc(0, 0, R - k * 3.5, from + (end - from) * k * 0.22, end); ctx.stroke();
+        ctx.restore();
+      }
+      ctx.restore();
+    }
+  }
+  const mp = (now - keyFx.missT) / 260;
+  if (mp >= 0 && mp < 1) a += Math.sin(mp * 22) * 0.35 * (1 - mp);
+  ctx.save();
+  ctx.rotate(a);
+  ctx.translate(r * 0.62 + ext * r * 0.6, 0);
+  drawHeldKey(len, slot.colors, !hasKey);
   ctx.restore();
+  ctx.restore();
+}
+const keyFx = { swingT: -1e9, swingA: 0, missT: -1e9 };
+function onKeySwing(angle) { keyFx.swingT = performance.now(); keyFx.swingA = angle; }
+function onKeyMiss() { keyFx.missT = performance.now(); }
+function easeInOut(x) { x = clamp01(x); return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; }
+// flat key along +x: bow ring at the origin, shaft, two teeth — outlined in white so it reads on the dark body
+function drawHeldKey(len, colors, dim) {
+  const bowR = len * 0.2, shaftW = len * 0.13, x0 = bowR * 2;
+  let col;
+  if (dim) col = '#8c9096';
+  else if (colors.length > 1) { col = ctx.createLinearGradient(0, 0, len, 0); colors.forEach((c, i) => col.addColorStop(i / (colors.length - 1), COLOR_HEX[c])); }
+  else col = COLOR_HEX[colors[0]];
+  const shape = extra => {
+    ctx.lineWidth = bowR * 0.75 + extra; ctx.beginPath(); ctx.arc(bowR, 0, bowR * 0.75, 0, TAU); ctx.stroke();
+    ctx.lineWidth = shaftW + extra; ctx.beginPath(); ctx.moveTo(x0 - 1, 0); ctx.lineTo(len, 0); ctx.stroke();
+    ctx.lineWidth = shaftW * 0.95 + extra; ctx.beginPath();
+    ctx.moveTo(len - shaftW * 0.5, 0); ctx.lineTo(len - shaftW * 0.5, shaftW * 2.1);
+    ctx.moveTo(len - shaftW * 2.4, 0); ctx.lineTo(len - shaftW * 2.4, shaftW * 1.5);
+    ctx.stroke();
+  };
+  ctx.lineCap = 'butt';
+  ctx.strokeStyle = phantomMode ? BG_PH : '#ffffff'; shape(2.2);
+  ctx.strokeStyle = col; shape(0);
 }
 
 function orbColor(orb, t) {
