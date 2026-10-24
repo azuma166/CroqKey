@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────
 //  CroqKey — Core Prototype v2
 // ─────────────────────────────────────────────
-const PREVIEW_BUILD = '10/24 satellite';
+const PREVIEW_BUILD = '10/24 orbit2';
 
 // Enemy / key colors
 const COLORS = ['red', 'blue', 'yellow', 'green', 'purple'];
@@ -2849,33 +2849,32 @@ function renderPlayer(t) {
   }
   ctx.restore();
 
-  // 鍵: a satellite held by the player's pull. It chases a guide point that circles the player on a
-  // rounded-triangle (ちまき) path; being only loosely bound, movement and unlock flicks throw it wide
-  // and it swings back into orbit.
+  // 鍵: a satellite held by the player's pull. Simulated in polar form around the player: the radius is
+  // sprung toward a circular orbit, the angular speed relaxes back to a slow lap. Kicks (unlock flicks,
+  // the player's own acceleration) split into radial and sideways parts, so a throw swings out and
+  // whips around instead of bouncing straight through the body.
   const slot = activeSlot(), hasKey = slot.dur > 0;
   const keyCol = hasKey ? (COLOR_HEX[slot.colors[0]] || CFG.KEY_COLOR) : '#8c9096';
   const len = r * 1.25, now = performance.now(), kb = keyBob;
   const dt = Math.min(3, Math.max(0.25, (now - (kb.lastT || now - 16.7)) / 16.7)); kb.lastT = now;
-  const R = r * 2.9;
-  const guide = th => {
-    const rr = R * (1 + 0.27 * Math.cos(3 * (th - kb.prec)));
-    return { x: player.x + Math.cos(th) * rr, y: player.y + Math.sin(th) * rr };
-  };
-  if (!kb.init || Math.hypot(kb.x - player.x, kb.y - player.y) > 400) {
-    const g0 = guide(kb.th);
-    Object.assign(kb, { init: true, x: g0.x, y: g0.y, vx: 0, vy: 0, ang: kb.th + Math.PI / 2, av: 0 });
-    kb.trail.length = 0;
-  }
+  kb.R = r * 2.9;
+  if (!kb.init) { Object.assign(kb, { init: true, rho: kb.R, vr: 0, phi: Math.PI / 2, w: ORBIT_W, pvx: player.vx, pvy: player.vy, ang: Math.PI, av: 0 }); kb.trail.length = 0; }
+  // the player's own acceleration acts on the key as inertia (it lags, then swings)
+  keyKick(-(player.vx - kb.pvx) * 0.7, -(player.vy - kb.pvy) * 0.7);
+  kb.pvx = player.vx; kb.pvy = player.vy;
   const steps = Math.ceil(dt), hs = dt / steps;
   for (let i = 0; i < steps; i++) {
-    kb.th += 0.085 * hs;
-    kb.prec += 0.004 * hs;
-    const g = guide(kb.th), g2 = guide(kb.th + 0.085);
-    const gvx = g2.x - g.x, gvy = g2.y - g.y;              // orbital velocity of the guide (player motion excluded → lag)
-    kb.vx += (0.042 * (g.x - kb.x) + 0.06 * (gvx - kb.vx)) * hs;
-    kb.vy += (0.042 * (g.y - kb.y) + 0.06 * (gvy - kb.vy)) * hs;
-    kb.x += kb.vx * hs; kb.y += kb.vy * hs;
+    kb.vr += (-0.04 * (kb.rho - kb.R) - 0.1 * kb.vr) * hs;
+    kb.w += (ORBIT_W - kb.w) * 0.035 * hs;
+    kb.rho += kb.vr * hs;
+    if (kb.rho < r * 1.3) { kb.rho = r * 1.3; if (kb.vr < 0) kb.vr = -kb.vr * 0.4; }
+    if (kb.rho > r * 8) { kb.rho = r * 8; if (kb.vr > 0) kb.vr = 0; }
+    kb.phi += kb.w * hs;
   }
+  kb.x = player.x + Math.cos(kb.phi) * kb.rho; kb.y = player.y + Math.sin(kb.phi) * kb.rho;
+  // velocity relative to the player, for heading
+  kb.vx = Math.cos(kb.phi) * kb.vr - Math.sin(kb.phi) * kb.rho * kb.w;
+  kb.vy = Math.sin(kb.phi) * kb.vr + Math.cos(kb.phi) * kb.rho * kb.w;
   const kspd = Math.hypot(kb.vx, kb.vy);
   const heading = kspd > 0.3 ? Math.atan2(kb.vy, kb.vx) : kb.ang;
   kb.av += angleDiff(heading, kb.ang) * 0.2 * dt;
@@ -2901,15 +2900,22 @@ function renderPlayer(t) {
   ctx.restore();
   ctx.restore();
 }
-const keyBob = { init: false, x: 0, y: 0, vx: 0, vy: 0, ang: 0, av: 0, lastT: 0, trail: [], th: Math.PI / 2, prec: 0 };
-// unlock hit: throw the key out along the flick; the pull brings it back around
+const ORBIT_W = 0.021; // rad per frame (~5 s per lap)
+const keyBob = { init: false, x: 0, y: 0, vx: 0, vy: 0, rho: 0, vr: 0, phi: 0, w: 0, R: 0, pvx: 0, pvy: 0, ang: 0, av: 0, lastT: 0, trail: [] };
+// apply a world-space velocity kick to the orbiting key
+function keyKick(ix, iy) {
+  const kb = keyBob;
+  if (!kb.init) return;
+  const ux = Math.cos(kb.phi), uy = Math.sin(kb.phi);
+  kb.vr += ix * ux + iy * uy;
+  kb.w += (-ix * uy + iy * ux) / Math.max(kb.rho, 8);
+}
+// unlock hit: throw the key along the flick; a sideways whip in the orbit direction makes it swing around
 function onKeySwing(angle) {
-  keyBob.vx += Math.cos(angle) * 13;
-  keyBob.vy += Math.sin(angle) * 13;
+  keyKick(Math.cos(angle) * 11, Math.sin(angle) * 11);
+  keyBob.w += 0.09 * Math.sign(keyBob.w || 1);
 }
-function onKeyMiss() {
-  keyBob.vx += (Math.random() - 0.5) * 3; keyBob.vy += (Math.random() - 0.5) * 3;
-}
+function onKeyMiss() { keyKick((Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3); }
 // flat key along +x: bow ring at the origin, shaft, two teeth — outlined in white so it reads on the dark body
 function drawHeldKey(len, colors, dim) {
   const bowR = len * 0.2, shaftW = len * 0.13, x0 = bowR * 2;
