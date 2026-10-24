@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────
 //  CroqKey — Core Prototype v2
 // ─────────────────────────────────────────────
-const PREVIEW_BUILD = '10/24 yoyo';
+const PREVIEW_BUILD = '10/24 satellite';
 
 // Enemy / key colors
 const COLORS = ['red', 'blue', 'yellow', 'green', 'purple'];
@@ -2849,73 +2849,66 @@ function renderPlayer(t) {
   }
   ctx.restore();
 
-  // 鍵: a yo-yo on a springy string — dragged by movement, flung out by each unlock, swinging back around
+  // 鍵: a satellite held by the player's pull. It chases a guide point that circles the player on a
+  // rounded-triangle (ちまき) path; being only loosely bound, movement and unlock flicks throw it wide
+  // and it swings back into orbit.
   const slot = activeSlot(), hasKey = slot.dur > 0;
   const keyCol = hasKey ? (COLOR_HEX[slot.colors[0]] || CFG.KEY_COLOR) : '#8c9096';
-  const len = r * 1.35, now = performance.now(), kb = keyBob;
+  const len = r * 1.25, now = performance.now(), kb = keyBob;
   const dt = Math.min(3, Math.max(0.25, (now - (kb.lastT || now - 16.7)) / 16.7)); kb.lastT = now;
-  if (!kb.init || Math.hypot(kb.x - player.x, kb.y - player.y) > 300) {
-    Object.assign(kb, { init: true, x: player.x + r * 0.9, y: player.y + r * 1.9, vx: 0, vy: 0, ang: Math.PI / 2.4, av: 0 });
+  const R = r * 2.9;
+  const guide = th => {
+    const rr = R * (1 + 0.27 * Math.cos(3 * (th - kb.prec)));
+    return { x: player.x + Math.cos(th) * rr, y: player.y + Math.sin(th) * rr };
+  };
+  if (!kb.init || Math.hypot(kb.x - player.x, kb.y - player.y) > 400) {
+    const g0 = guide(kb.th);
+    Object.assign(kb, { init: true, x: g0.x, y: g0.y, vx: 0, vy: 0, ang: kb.th + Math.PI / 2, av: 0 });
     kb.trail.length = 0;
   }
-  const L0 = r * 2.0, LMAX = r * 4.4, steps = Math.ceil(dt), hstep = dt / steps;
+  const steps = Math.ceil(dt), hs = dt / steps;
   for (let i = 0; i < steps; i++) {
-    const dx = kb.x - player.x, dy = kb.y - player.y, d = Math.hypot(dx, dy) || 0.001;
-    const f = -0.055 * (d - L0);
-    kb.vx += (dx / d) * f * hstep;
-    kb.vy += ((dy / d) * f + 0.09) * hstep;   // slight dangle so it hangs when idle
-    const damp = Math.pow(0.955, hstep);
-    kb.vx *= damp; kb.vy *= damp;
-    kb.x += kb.vx * hstep; kb.y += kb.vy * hstep;
-    const ex = kb.x - player.x, ey = kb.y - player.y, d2 = Math.hypot(ex, ey);
-    if (d2 > LMAX) {
-      const ux = ex / d2, uy = ey / d2;
-      kb.x = player.x + ux * LMAX; kb.y = player.y + uy * LMAX;
-      const vr = kb.vx * ux + kb.vy * uy;
-      if (vr > 0) { kb.vx -= vr * ux; kb.vy -= vr * uy; }
-    }
+    kb.th += 0.085 * hs;
+    kb.prec += 0.004 * hs;
+    const g = guide(kb.th), g2 = guide(kb.th + 0.085);
+    const gvx = g2.x - g.x, gvy = g2.y - g.y;              // orbital velocity of the guide (player motion excluded → lag)
+    kb.vx += (0.042 * (g.x - kb.x) + 0.06 * (gvx - kb.vx)) * hs;
+    kb.vy += (0.042 * (g.y - kb.y) + 0.06 * (gvy - kb.vy)) * hs;
+    kb.x += kb.vx * hs; kb.y += kb.vy * hs;
   }
-  const radial = Math.atan2(kb.y - player.y, kb.x - player.x);
-  kb.av += angleDiff(radial, kb.ang) * 0.16 * dt;
-  kb.av *= Math.pow(0.8, dt);
+  const kspd = Math.hypot(kb.vx, kb.vy);
+  const heading = kspd > 0.3 ? Math.atan2(kb.vy, kb.vx) : kb.ang;
+  kb.av += angleDiff(heading, kb.ang) * 0.2 * dt;
+  kb.av *= Math.pow(0.75, dt);
   kb.ang += kb.av * dt;
-  kb.trail.push(kb.x, kb.y);
-  if (kb.trail.length > 20) kb.trail.splice(0, 2);
-  const kx = kb.x - player.x, ky = kb.y - player.y, kspd = Math.hypot(kb.vx, kb.vy);
-  // swing trail
-  if (kspd > 1.5 && kb.trail.length >= 6) {
-    ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = keyCol;
-    for (let i = 2; i < kb.trail.length; i += 2) {
-      ctx.globalAlpha = Math.min(1, (kspd - 1.5) / 4) * 0.55 * (i / kb.trail.length);
-      ctx.lineWidth = 1 + 2.5 * (i / kb.trail.length);
-      ctx.beginPath();
-      ctx.moveTo(kb.trail[i - 2] - player.x, kb.trail[i - 1] - player.y);
-      ctx.lineTo(kb.trail[i] - player.x, kb.trail[i + 1] - player.y);
-      ctx.stroke();
+  kb.trail.push(kb.x - player.x, kb.y - player.y);       // trail kept relative to the player so the orbit shape reads
+  if (kb.trail.length > 36) kb.trail.splice(0, 2);
+  const kx = kb.x - player.x, ky = kb.y - player.y;
+  if (kb.trail.length >= 6) {
+    ctx.save(); ctx.lineCap = 'round'; ctx.strokeStyle = keyCol;
+    const n = kb.trail.length;
+    for (let i = 2; i < n; i += 2) {
+      const f = i / n;
+      ctx.globalAlpha = 0.5 * f * f; ctx.lineWidth = 0.8 + 2.4 * f;
+      ctx.beginPath(); ctx.moveTo(kb.trail[i - 2], kb.trail[i - 1]); ctx.lineTo(kb.trail[i], kb.trail[i + 1]); ctx.stroke();
     }
     ctx.restore();
   }
-  // string
   ctx.save();
-  ctx.strokeStyle = ph ? 'rgba(233,255,251,0.6)' : 'rgba(22,24,27,0.55)'; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(Math.cos(radial) * r * 0.8, Math.sin(radial) * r * 0.8); ctx.lineTo(kx, ky); ctx.stroke();
-  ctx.translate(kx, ky); ctx.rotate(kb.ang);
+  ctx.translate(kx, ky); ctx.rotate(kb.ang + Math.PI);  // tip leads, bow trails
+  ctx.translate(-len * 0.5, 0);
   drawHeldKey(len, slot.colors, !hasKey);
   ctx.restore();
   ctx.restore();
 }
-const keyBob = { init: false, x: 0, y: 0, vx: 0, vy: 0, ang: 0, av: 0, lastT: 0, trail: [], spin: 1 };
-// unlock hit: fling the key along the flick, with a sideways kick so it loops back around
+const keyBob = { init: false, x: 0, y: 0, vx: 0, vy: 0, ang: 0, av: 0, lastT: 0, trail: [], th: Math.PI / 2, prec: 0 };
+// unlock hit: throw the key out along the flick; the pull brings it back around
 function onKeySwing(angle) {
-  const c = Math.cos(angle), s = Math.sin(angle);
-  keyBob.spin = -keyBob.spin;
-  keyBob.vx += c * 8 - s * keyBob.spin * 3.5;
-  keyBob.vy += s * 8 + c * keyBob.spin * 3.5;
-  keyBob.av += keyBob.spin * 0.25;
+  keyBob.vx += Math.cos(angle) * 13;
+  keyBob.vy += Math.sin(angle) * 13;
 }
 function onKeyMiss() {
   keyBob.vx += (Math.random() - 0.5) * 3; keyBob.vy += (Math.random() - 0.5) * 3;
-  keyBob.av += (Math.random() - 0.5) * 0.6;
 }
 // flat key along +x: bow ring at the origin, shaft, two teeth — outlined in white so it reads on the dark body
 function drawHeldKey(len, colors, dim) {
