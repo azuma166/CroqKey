@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────
 //  CroqKey — Core Prototype v2
 // ─────────────────────────────────────────────
-const PREVIEW_BUILD = '10/24 key';
+const PREVIEW_BUILD = '10/24 yoyo';
 
 // Enemy / key colors
 const COLORS = ['red', 'blue', 'yellow', 'green', 'purple'];
@@ -2849,44 +2849,74 @@ function renderPlayer(t) {
   }
   ctx.restore();
 
-  // 鍵: held at the body's edge, pointed at the lock while connected; swings along each unlock flick
+  // 鍵: a yo-yo on a springy string — dragged by movement, flung out by each unlock, swinging back around
   const slot = activeSlot(), hasKey = slot.dur > 0;
   const keyCol = hasKey ? (COLOR_HEX[slot.colors[0]] || CFG.KEY_COLOR) : '#8c9096';
-  const now = performance.now(), len = r * 1.35;
-  const rest = connectedEnemy
-    ? Math.atan2(connectedEnemy.y - player.y, connectedEnemy.x - player.x)
-    : Math.PI * 0.22 + Math.sin(t * 2.2) * 0.08 - Math.max(-0.5, Math.min(0.5, player.vx * 0.04));
-  let a = rest, ext = 0;
-  const sp = (now - keyFx.swingT) / 230;
-  if (sp >= 0 && sp < 1) {
-    const from = keyFx.swingA - 1.7, to = keyFx.swingA + 0.35;
-    if (sp < 0.35) { const e = easeOut(sp / 0.35); a = from + (to - from) * e; ext = e; }
-    else { const e = easeInOut((sp - 0.35) / 0.65); a = to + angleDiff(rest, to) * e; ext = 1 - e; }
-    if (sp < 0.6) { // swoosh
-      const end = sp < 0.35 ? a : to, R = r * 0.7 + len * 0.9 + r * 0.6;
-      ctx.save(); ctx.lineCap = 'round'; ctx.strokeStyle = keyCol;
-      for (let k = 0; k < 3; k++) {
-        ctx.save();
-        ctx.globalAlpha = (1 - sp / 0.6) * (0.85 - k * 0.22); ctx.lineWidth = 4 - k * 1.2;
-        ctx.beginPath(); ctx.arc(0, 0, R - k * 3.5, from + (end - from) * k * 0.22, end); ctx.stroke();
-        ctx.restore();
-      }
-      ctx.restore();
+  const len = r * 1.35, now = performance.now(), kb = keyBob;
+  const dt = Math.min(3, Math.max(0.25, (now - (kb.lastT || now - 16.7)) / 16.7)); kb.lastT = now;
+  if (!kb.init || Math.hypot(kb.x - player.x, kb.y - player.y) > 300) {
+    Object.assign(kb, { init: true, x: player.x + r * 0.9, y: player.y + r * 1.9, vx: 0, vy: 0, ang: Math.PI / 2.4, av: 0 });
+    kb.trail.length = 0;
+  }
+  const L0 = r * 2.0, LMAX = r * 4.4, steps = Math.ceil(dt), hstep = dt / steps;
+  for (let i = 0; i < steps; i++) {
+    const dx = kb.x - player.x, dy = kb.y - player.y, d = Math.hypot(dx, dy) || 0.001;
+    const f = -0.055 * (d - L0);
+    kb.vx += (dx / d) * f * hstep;
+    kb.vy += ((dy / d) * f + 0.09) * hstep;   // slight dangle so it hangs when idle
+    const damp = Math.pow(0.955, hstep);
+    kb.vx *= damp; kb.vy *= damp;
+    kb.x += kb.vx * hstep; kb.y += kb.vy * hstep;
+    const ex = kb.x - player.x, ey = kb.y - player.y, d2 = Math.hypot(ex, ey);
+    if (d2 > LMAX) {
+      const ux = ex / d2, uy = ey / d2;
+      kb.x = player.x + ux * LMAX; kb.y = player.y + uy * LMAX;
+      const vr = kb.vx * ux + kb.vy * uy;
+      if (vr > 0) { kb.vx -= vr * ux; kb.vy -= vr * uy; }
     }
   }
-  const mp = (now - keyFx.missT) / 260;
-  if (mp >= 0 && mp < 1) a += Math.sin(mp * 22) * 0.35 * (1 - mp);
+  const radial = Math.atan2(kb.y - player.y, kb.x - player.x);
+  kb.av += angleDiff(radial, kb.ang) * 0.16 * dt;
+  kb.av *= Math.pow(0.8, dt);
+  kb.ang += kb.av * dt;
+  kb.trail.push(kb.x, kb.y);
+  if (kb.trail.length > 20) kb.trail.splice(0, 2);
+  const kx = kb.x - player.x, ky = kb.y - player.y, kspd = Math.hypot(kb.vx, kb.vy);
+  // swing trail
+  if (kspd > 1.5 && kb.trail.length >= 6) {
+    ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = keyCol;
+    for (let i = 2; i < kb.trail.length; i += 2) {
+      ctx.globalAlpha = Math.min(1, (kspd - 1.5) / 4) * 0.55 * (i / kb.trail.length);
+      ctx.lineWidth = 1 + 2.5 * (i / kb.trail.length);
+      ctx.beginPath();
+      ctx.moveTo(kb.trail[i - 2] - player.x, kb.trail[i - 1] - player.y);
+      ctx.lineTo(kb.trail[i] - player.x, kb.trail[i + 1] - player.y);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  // string
   ctx.save();
-  ctx.rotate(a);
-  ctx.translate(r * 0.62 + ext * r * 0.6, 0);
+  ctx.strokeStyle = ph ? 'rgba(233,255,251,0.6)' : 'rgba(22,24,27,0.55)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(Math.cos(radial) * r * 0.8, Math.sin(radial) * r * 0.8); ctx.lineTo(kx, ky); ctx.stroke();
+  ctx.translate(kx, ky); ctx.rotate(kb.ang);
   drawHeldKey(len, slot.colors, !hasKey);
   ctx.restore();
   ctx.restore();
 }
-const keyFx = { swingT: -1e9, swingA: 0, missT: -1e9 };
-function onKeySwing(angle) { keyFx.swingT = performance.now(); keyFx.swingA = angle; }
-function onKeyMiss() { keyFx.missT = performance.now(); }
-function easeInOut(x) { x = clamp01(x); return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; }
+const keyBob = { init: false, x: 0, y: 0, vx: 0, vy: 0, ang: 0, av: 0, lastT: 0, trail: [], spin: 1 };
+// unlock hit: fling the key along the flick, with a sideways kick so it loops back around
+function onKeySwing(angle) {
+  const c = Math.cos(angle), s = Math.sin(angle);
+  keyBob.spin = -keyBob.spin;
+  keyBob.vx += c * 8 - s * keyBob.spin * 3.5;
+  keyBob.vy += s * 8 + c * keyBob.spin * 3.5;
+  keyBob.av += keyBob.spin * 0.25;
+}
+function onKeyMiss() {
+  keyBob.vx += (Math.random() - 0.5) * 3; keyBob.vy += (Math.random() - 0.5) * 3;
+  keyBob.av += (Math.random() - 0.5) * 0.6;
+}
 // flat key along +x: bow ring at the origin, shaft, two teeth — outlined in white so it reads on the dark body
 function drawHeldKey(len, colors, dim) {
   const bowR = len * 0.2, shaftW = len * 0.13, x0 = bowR * 2;
