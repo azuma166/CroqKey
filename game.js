@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────
 //  CroqKey — Core Prototype v2
 // ─────────────────────────────────────────────
-const BUILD = '2026.10.24';
+const BUILD = '2026.10.24b';
 
 // Enemy / key colors
 const COLORS = ['red', 'blue', 'yellow', 'green', 'purple'];
@@ -2789,6 +2789,7 @@ function renderEnemy(e, t) {
   ctx.restore();
 }
 
+let RDT = 1; // elapsed time of this display frame, in 60 Hz frames
 const mochi = { sq: 0, sqv: 0, pvx: 0, pvy: 0, kickA: 0, lx: 0, ly: 0 };
 function renderPlayer(t) {
   const r = player.r, ph = phantomMode;
@@ -2804,7 +2805,9 @@ function renderPlayer(t) {
   const dvx = player.vx - mochi.pvx, dvy = player.vy - mochi.pvy, dv = Math.hypot(dvx, dvy);
   if (dv > 0.8) { mochi.sqv += Math.min(dv, 10) * 0.022; mochi.kickA = Math.atan2(dvy, dvx); }
   mochi.pvx = player.vx; mochi.pvy = player.vy;
-  mochi.sqv += -mochi.sq * 0.22; mochi.sqv *= 0.8; mochi.sq += mochi.sqv;
+  for (let k = 0, n = Math.max(1, Math.ceil(RDT)), h = RDT / n; k < n; k++) {
+    mochi.sqv += -mochi.sq * 0.22 * h; mochi.sqv *= Math.pow(0.8, h); mochi.sq += mochi.sqv * h;
+  }
   const st = Math.min(spd / CFG.MAX_SPEED, 1) * 0.2;
   const along = spd > 0.4 ? Math.atan2(player.vy, player.vx) : mochi.kickA;
   const breathe = spd < 0.4 ? Math.sin(t * 2.4) * 0.03 : 0;
@@ -2831,7 +2834,8 @@ function renderPlayer(t) {
     for (const e of enemies) { if (!e.alive) continue; const d = Math.hypot(e.x - player.x, e.y - player.y); if (d < bd) { bd = d; best = e; } }
     if (best) { const a = Math.atan2(best.y - player.y, best.x - player.x); tx = Math.cos(a) * 0.8; ty = Math.sin(a) * 0.8; }
   }
-  mochi.lx += (tx - mochi.lx) * 0.18; mochi.ly += (ty - mochi.ly) * 0.18;
+  const lk = 1 - Math.pow(0.82, RDT);
+  mochi.lx += (tx - mochi.lx) * lk; mochi.ly += (ty - mochi.ly) * lk;
   const lx = mochi.lx * r * 0.14, ly = mochi.ly * r * 0.12;
   const blink = player.hitFlash > 0 || (t % 3.7) < 0.12;
   const white = ph ? BG_PH : '#ffffff', pupil = ph ? '#e9fffb' : '#1a1a1a';
@@ -2880,8 +2884,12 @@ function renderPlayer(t) {
   kb.av += angleDiff(heading, kb.ang) * 0.2 * dt;
   kb.av *= Math.pow(0.75, dt);
   kb.ang += kb.av * dt;
-  kb.trail.push(kb.x - player.x, kb.y - player.y);       // trail kept relative to the player so the orbit shape reads
-  if (kb.trail.length > 36) kb.trail.splice(0, 2);
+  kb.trailAcc = (kb.trailAcc || 0) + RDT;
+  if (kb.trailAcc >= 1) {                                  // one sample per 60 Hz frame
+    kb.trailAcc = 0;
+    kb.trail.push(kb.x - player.x, kb.y - player.y);       // kept relative to the player so the orbit shape reads
+    if (kb.trail.length > 36) kb.trail.splice(0, 2);
+  }
   const kx = kb.x - player.x, ky = kb.y - player.y;
   if (kb.trail.length >= 6) {
     ctx.save(); ctx.lineCap = 'round'; ctx.strokeStyle = keyCol;
@@ -3736,16 +3744,28 @@ function roundRect(x, y, w, h, r) {
 // ══════════════════════════════════════════════
 //  MAIN LOOP
 // ══════════════════════════════════════════════
-// Drop to 1x pixel density for the rest of the session if the device can't keep up
-let _lastNow = 0, _perfSum = 0, _perfN = 0;
+// Game logic advances in fixed 60 Hz steps whatever the display rate (120 Hz phones used to run at
+// double speed); rendering happens once per display frame.
+const STEP_MS = 1000 / 60;
+let _lastNow = 0, _stepAcc = 0, _perfSum = 0, _perfN = 0;
 function loop(now) {
-  if (_lastNow) { const dt = now - _lastNow; if (dt < 250) { _perfSum += dt; _perfN++; } }
+  let dt = _lastNow ? now - _lastNow : STEP_MS;
   _lastNow = now;
+  if (dt > 250) dt = STEP_MS; // returning from a background tab: don't fast-forward
+  else { _perfSum += dt; _perfN++; }
+  // Drop to 1x pixel density for the rest of the session if the device can't keep up
   if (_perfN >= 120) {
     if (DPR > 1 && _perfSum / _perfN > 22) { DPR = 1; resize(); }
     _perfSum = _perfN = 0;
   }
-  update(); render(); requestAnimationFrame(loop);
+  _stepAcc += dt;
+  let steps = 0;
+  // 0.9 tolerance keeps a 60 Hz display at exactly one step per frame despite rAF jitter
+  while (_stepAcc >= STEP_MS * 0.9 && steps < 4) { update(); _stepAcc -= STEP_MS; steps++; }
+  if (steps === 4 || _stepAcc < -STEP_MS) _stepAcc = 0;
+  RDT = Math.min(3, dt / STEP_MS);
+  render();
+  requestAnimationFrame(loop);
 }
 
 initPlayer();
