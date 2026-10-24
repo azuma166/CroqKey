@@ -2786,6 +2786,7 @@ function renderEnemy(e, t) {
   ctx.restore();
 }
 
+const mochi = { sq: 0, sqv: 0, pvx: 0, pvy: 0, kickA: 0, lx: 0, ly: 0 };
 function renderPlayer(t) {
   const r = player.r, ph = phantomMode;
   ctx.save();
@@ -2795,18 +2796,57 @@ function renderPlayer(t) {
     ctx.save(); ctx.globalAlpha *= (player.hitFlash / 22) * 0.5; ctx.fillStyle = DEBUFF_COL;
     ctx.beginPath(); ctx.arc(0, 0, r + 6, 0, TAU); ctx.fill(); ctx.restore();
   }
-  const body = ph ? '#e9fffb' : '#1a1a1a';
-  ctx.strokeStyle = body; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.stroke();
-  ctx.fillStyle = ph ? '#e9fffb' : '#242424';
-  ctx.beginPath(); ctx.arc(0, 0, r * 0.65, 0, TAU); ctx.fill();
-  const er = r * 0.42, ey0 = -r * 0.1;
-  ctx.strokeStyle = ph ? BG_PH : '#f0ede6'; ctx.fillStyle = ctx.strokeStyle; ctx.lineWidth = 1; ctx.lineCap = 'round';
-  for (const ex of [-er, er]) {
-    ctx.beginPath(); ctx.arc(ex, ey0, r * 0.1, 0, TAU); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(ex - r * 0.28, ey0); ctx.lineTo(ex + r * 0.28, ey0); ctx.stroke();
+  // もちもち: a spring squash kicked by sudden velocity changes, stretch with speed, idle breathing
+  const spd = Math.hypot(player.vx, player.vy);
+  const dvx = player.vx - mochi.pvx, dvy = player.vy - mochi.pvy, dv = Math.hypot(dvx, dvy);
+  if (dv > 0.8) { mochi.sqv += Math.min(dv, 10) * 0.022; mochi.kickA = Math.atan2(dvy, dvx); }
+  mochi.pvx = player.vx; mochi.pvy = player.vy;
+  mochi.sqv += -mochi.sq * 0.22; mochi.sqv *= 0.8; mochi.sq += mochi.sqv;
+  const st = Math.min(spd / CFG.MAX_SPEED, 1) * 0.2;
+  const along = spd > 0.4 ? Math.atan2(player.vy, player.vx) : mochi.kickA;
+  const breathe = spd < 0.4 ? Math.sin(t * 2.4) * 0.03 : 0;
+  ctx.save();
+  ctx.rotate(along);
+  ctx.scale(1 + st + mochi.sq, Math.max(0.6, 1 - st * 0.55 - mochi.sq * 0.7));
+  ctx.rotate(-along);
+  ctx.scale(1 - breathe * 0.5, 1 + breathe);
+  ctx.beginPath();
+  for (let i = 0; i <= 36; i++) {
+    const a = i / 36 * TAU;
+    const rr = r * (1 + 0.045 * Math.sin(a * 3 + t * 5) + 0.03 * Math.sin(a * 5 - t * 3.3));
+    if (i === 0) ctx.moveTo(Math.cos(a) * rr, Math.sin(a) * rr); else ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
   }
-  const slot = activeSlot(), dX = r * 0.68, dY = -r * 0.68, dR = r * 0.3;
+  ctx.closePath();
+  ctx.fillStyle = ph ? '#e9fffb' : '#1a1a1a'; ctx.fill();
+
+  // 視線: thread target, else travel direction, else the nearest lock in view
+  let tx = 0, ty = 0;
+  if (connectedEnemy) { const a = Math.atan2(connectedEnemy.y - player.y, connectedEnemy.x - player.x); tx = Math.cos(a); ty = Math.sin(a); }
+  else if (spd > 0.6) { tx = player.vx / spd; ty = player.vy / spd; }
+  else {
+    let best = null, bd = 260;
+    for (const e of enemies) { if (!e.alive) continue; const d = Math.hypot(e.x - player.x, e.y - player.y); if (d < bd) { bd = d; best = e; } }
+    if (best) { const a = Math.atan2(best.y - player.y, best.x - player.x); tx = Math.cos(a) * 0.8; ty = Math.sin(a) * 0.8; }
+  }
+  mochi.lx += (tx - mochi.lx) * 0.18; mochi.ly += (ty - mochi.ly) * 0.18;
+  const lx = mochi.lx * r * 0.14, ly = mochi.ly * r * 0.12;
+  const blink = player.hitFlash > 0 || (t % 3.7) < 0.12;
+  const white = ph ? BG_PH : '#ffffff', pupil = ph ? '#e9fffb' : '#1a1a1a';
+  for (const sx of [-1, 1]) {
+    const ex = sx * r * 0.36 + lx, ey = -r * 0.1 + ly;
+    if (blink) {
+      ctx.strokeStyle = white; ctx.lineWidth = 1.4; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(ex - r * 0.16, ey); ctx.lineTo(ex + r * 0.16, ey); ctx.stroke();
+    } else {
+      ctx.fillStyle = white;
+      ctx.beginPath(); ctx.ellipse(ex, ey, r * 0.17, r * 0.23, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = pupil;
+      ctx.beginPath(); ctx.arc(ex + mochi.lx * r * 0.07, ey + mochi.ly * r * 0.09, r * 0.085, 0, TAU); ctx.fill();
+    }
+  }
+  ctx.restore();
+
+  const slot = activeSlot(), dX = r * 0.72, dY = -r * 0.72, dR = r * 0.28;
   if (slot.colors.length > 1 && slot.dur > 0) {
     const g = ctx.createLinearGradient(dX - dR, dY, dX + dR, dY);
     slot.colors.forEach((c, i) => g.addColorStop(i / (slot.colors.length - 1), COLOR_HEX[c]));
