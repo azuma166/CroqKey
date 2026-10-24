@@ -1,6 +1,7 @@
 // ─────────────────────────────────────────────
 //  CroqKey — Core Prototype v2
 // ─────────────────────────────────────────────
+const BUILD = '2026.10.24';
 
 // Enemy / key colors
 const COLORS = ['red', 'blue', 'yellow', 'green', 'purple'];
@@ -278,8 +279,12 @@ const DEBUFF_CATALOG = {
   ],
 };
 
-// Accumulate all active inscription effects into a mods object
+// Accumulate all active inscription effects into a mods object.
+// Inscriptions are only ever appended (or cleared on reset), so the length is
+// a sufficient cache key; callers treat the returned object as read-only.
+let _modsCache = null, _modsLen = -1;
 function getMods() {
+  if (_modsCache && _modsLen === activeInscriptions.length) return _modsCache;
   const m = {
     globalDmgMult:    1,
     critMult:         0,
@@ -349,6 +354,7 @@ function getMods() {
   m.globalDmgMult = Math.max(0.1, m.globalDmgMult);
   m.effectRangeMult = Math.max(1, m.effectRangeMult);
   m.redDmgMult = Math.max(0.1, m.redDmgMult);
+  _modsCache = m; _modsLen = activeInscriptions.length;
   return m;
 }
 
@@ -539,6 +545,7 @@ function openDraft(orbIndex) {
     fusionSlotA = -1;
     state = State.FUSION_SELECT;
   } else {
+    hintEvent('draft');
     if (infectedMode) {
       // Each choice is a bundle of 5 random inscriptions
       draftChoices = [
@@ -619,7 +626,7 @@ function draftCardBounds(w, h) {
     cards.push({ x: startX + i * (cardW + 12), y: cardY, w: cardW, h: cardH, index: i });
   }
   // Skip button below cards
-  const skipW = 160, skipH = 42;
+  const skipW = Math.min(w - 40, 260), skipH = 42;
   cards.push({ x: w / 2 - skipW / 2, y: cardY + cardH + 18, w: skipW, h: skipH, index: -1 });
   return cards;
 }
@@ -641,15 +648,21 @@ function handleDraftTap(sx, sy) {
 const canvas = document.getElementById('game');
 const ctx    = canvas.getContext('2d');
 
+// Logical (CSS px) size for all game/UI math; the backing store is DPR-scaled for crisp lines
+let DPR = Math.min(window.devicePixelRatio || 1, 2);
+let viewW = window.innerWidth, viewH = window.innerHeight;
 function resize() {
-  canvas.width  = window.innerWidth;
-  canvas.height = window.innerHeight;
+  viewW = window.innerWidth; viewH = window.innerHeight;
+  canvas.width  = Math.round(viewW * DPR);
+  canvas.height = Math.round(viewH * DPR);
+  canvas.style.width  = viewW + 'px';
+  canvas.style.height = viewH + 'px';
 }
 resize();
 window.addEventListener('resize', resize);
 
-const W = () => canvas.width;
-const H = () => canvas.height;
+const W = () => viewW;
+const H = () => viewH;
 
 // ══════════════════════════════════════════════
 //  CAMERA  (world coords of viewport top-left)
@@ -679,7 +692,7 @@ function s2w(sx, sy) { return { x: sx + cam.x, y: sy + cam.y }; }
 // ══════════════════════════════════════════════
 //  GAME STATE
 // ══════════════════════════════════════════════
-const State = { IDLE: 'idle', CONNECTED: 'connected', GAMEOVER: 'gameover', DRAFT: 'draft', PAUSED: 'paused', FUSION_SELECT: 'fusion_select', PAINT_DRAFT: 'paint_draft' };
+const State = { TITLE: 'title', IDLE: 'idle', CONNECTED: 'connected', GAMEOVER: 'gameover', DRAFT: 'draft', PAUSED: 'paused', FUSION_SELECT: 'fusion_select', PAINT_DRAFT: 'paint_draft' };
 let state          = State.IDLE;
 let connectedEnemy = null;
 let score          = 0;
@@ -881,7 +894,7 @@ function addEnemy() {
 // ══════════════════════════════════════════════
 const effects = [];
 function addFx(type, x, y, opts = {}) {
-  effects.push({ type, x, y, age: 0, maxAge: 30, ...opts });
+  effects.push({ type, x, y, age: 0, maxAge: 30, seed: Math.random() * 6.283, ...opts });
 }
 
 // ══════════════════════════════════════════════
@@ -933,6 +946,7 @@ function collectKey(color) {
     const actualDur = Math.max(1, Math.round(baseDur * Math.max(0.1, 1 + mods.keyDropDurMult)));
     slot.dur = Math.min(cap, slot.dur + actualDur);
   }
+  hintEvent('key');
   if (!firstKeyAnnounced && color === 'blue') { firstKeyAnnounced = true; orbAnnounce = { label: 'タップで鍵切替', color: '#6699ff', age: 0, maxAge: 110, slowFrames: 70 }; }
   playKeyPickupSound(color);
 }
@@ -1518,16 +1532,13 @@ function handlePanelTap(sx, sy) {
   const slots = keyPanelSlots();
   for (const s of slots) {
     if (Math.hypot(sx - s.cx, sy - s.cy) < s.r + 6) {
-      if (s.slot.dur > 0) { selectedSlotIdx = s.idx; playSlotSelectSound(); }
+      if (s.slot.dur > 0) { selectedSlotIdx = s.idx; playSlotSelectSound(); hintEvent('slot'); }
       return true;
     }
   }
   return false;
 }
 
-function pauseButtonBounds() {
-  return { x: 12, y: 62, w: 52, h: 28 };
-}
 
 function fusionConfirmBounds(w, h) {
   const cx = w / 2, btnY = h / 2 + 60;
@@ -1538,6 +1549,13 @@ function fusionConfirmBounds(w, h) {
 }
 
 function pointerDown(sx, sy) {
+  if (state === State.TITLE) {
+    ac();
+    state = State.IDLE;
+    orbAnnounce = { label: 'Tap & Flick', color: '#cccccc', age: 0, maxAge: 110, slowFrames: 70 };
+    touch = null;
+    return;
+  }
   if (state === State.GAMEOVER) {
     gameOverHoldStart = performance.now();
     return;
@@ -1641,18 +1659,11 @@ function pointerUp(sx, sy) {
   const dt   = Math.max(performance.now() - touch.t, 25);
 
   if (state === State.PAUSED) {
-    const w = W(), h = H();
-    const cx = w / 2, cy = h / 2;
-    const cardH = 420;
-    const cardY = cy - cardH / 2;
-    const resumeY = cardY + 82;
-    const resetY  = cardY + 146;
-    const tSx = touch.sx, tSy = touch.sy;
-    if (tSx >= cx - 80 && tSx <= cx + 80 && tSy >= resumeY && tSy <= resumeY + 44) {
-      state = stateBeforePause;
-    } else if (tSx >= cx - 80 && tSx <= cx + 80 && tSy >= resetY && tSy <= resetY + 44) {
-      resetGame();
-    }
+    const L = pauseLayout(W(), H());
+    const hit = b => touch.sx >= b.x && touch.sx <= b.x + b.w && touch.sy >= b.y && touch.sy <= b.y + b.h;
+    if (hit(L.resume)) state = stateBeforePause;
+    else if (hit(L.reset)) resetGame();
+    else if (hit(L.hints)) { resetHints(); playSlotSelectSound(); }
     touch = null;
     return;
   }
@@ -1681,6 +1692,7 @@ function pointerUp(sx, sy) {
       const a   = Math.atan2(dy, dx);
       player.vx = Math.cos(a) * spd;
       player.vy = Math.sin(a) * spd;
+      hintEvent('move');
     }
   } else if (state === State.CONNECTED) {
     if (touchStartInsideRing) {
@@ -1704,10 +1716,12 @@ function pointerUp(sx, sy) {
   touch = null;
 }
 
-canvas.addEventListener('touchstart',  e => { e.preventDefault(); const t = e.changedTouches[0]; pointerDown(t.clientX, t.clientY); }, { passive: false });
+canvas.addEventListener('touchstart',  e => { e.preventDefault(); const t = e.changedTouches[0]; trailStart(t.clientX, t.clientY); pointerDown(t.clientX, t.clientY); }, { passive: false });
+canvas.addEventListener('touchmove',   e => { e.preventDefault(); const t = e.changedTouches[0]; trailMove(t.clientX, t.clientY); }, { passive: false });
 canvas.addEventListener('touchend',    e => { e.preventDefault(); const t = e.changedTouches[0]; pointerUp(t.clientX, t.clientY);   }, { passive: false });
 canvas.addEventListener('touchcancel', e => { e.preventDefault(); touch = null; }, { passive: false });
-canvas.addEventListener('mousedown', e => pointerDown(e.clientX, e.clientY));
+canvas.addEventListener('mousedown', e => { trailStart(e.clientX, e.clientY); pointerDown(e.clientX, e.clientY); });
+canvas.addEventListener('mousemove', e => trailMove(e.clientX, e.clientY));
 canvas.addEventListener('mouseup',   e => pointerUp(e.clientX, e.clientY));
 
 // ══════════════════════════════════════════════
@@ -1719,6 +1733,7 @@ function connectEnemy(enemy) {
   player.vx      = player.vy = 0;
   beamFlash      = 0;
   ghostTimer     = Math.max(10, Math.round(CFG.GHOST_FRAMES * Math.max(0.05, 1 + getMods().ghostTimerMult)));
+  hintEvent('connect');
 }
 
 function activeSlot() {
@@ -1770,6 +1785,9 @@ function tryUnlock(dx, dy) {
       addFx('heal', player.x, player.y, { maxAge: 20 });
     }
 
+    hintEvent('hit');
+    if (crit) hintEvent('crit');
+    onKeySwing(flickAngle);
     connectedEnemy.hp -= dmg;
     connectedEnemy.crackShake = 18;
     beamFlash = 8;
@@ -1805,6 +1823,7 @@ function tryUnlock(dx, dy) {
       uiShake = 10;
     }
     addFx('miss', player.x, player.y, { maxAge: 16 });
+    onKeyMiss();
   }
 }
 
@@ -1982,7 +2001,7 @@ function fullyUnlock(enemy) {
   addFx('explosion', enemy.x, enemy.y, { color: hex, maxAge: 55 });
   playUnlockSound();
   if (navigator.vibrate) navigator.vibrate([20, 10, 10]);
-  screenFlash = { r: er, g: eg, b: eb, alpha: 0.22 };
+  screenFlash = { r: er, g: eg, b: eb, alpha: 0.12 };
   // Drop all component color keys for fusion enemies
   const dropColors = enemy.fusion ? enemy.colors : [enemy.color];
   for (const dc of dropColors) {
@@ -2018,6 +2037,7 @@ function fullyUnlock(enemy) {
 
 function enterPhantomMode() {
   phantomMode = true;
+  hintEvent('phantom');
   playPhantomEnterSound();
   screenFlash = { r: 200, g: 255, b: 240, alpha: 0.40 };
   // Clear floor clutter
@@ -2057,6 +2077,7 @@ function emergencyEscape(dx, dy, dt) {
     player.vy = Math.sin(a) * spd;
   }
   addFx('escape', player.x, player.y, { maxAge: 22 });
+  hintEvent('escape');
   connectedEnemy = null;
   state          = State.IDLE;
   ghostTimer     = 0;
@@ -2127,6 +2148,8 @@ function resetGame() {
   nextFusionInsAt           = FUSION_INS_UNLOCK;
   stateBeforePause          = State.IDLE;
   state = State.IDLE;
+  fieldNotes.length = 0;
+  activeHint = null;
   initPlayer();
   spawnEnemies();
   orbAnnounce = { label: 'Tap & Flick', color: '#cccccc', age: 0, maxAge: 110, slowFrames: 70 };
@@ -2143,8 +2166,10 @@ function update() {
     }
     return;
   }
-  if (state === State.DRAFT || state === State.PAUSED || state === State.FUSION_SELECT || state === State.PAINT_DRAFT) return;
+  if (state === State.TITLE || state === State.DRAFT || state === State.PAUSED || state === State.FUSION_SELECT || state === State.PAINT_DRAFT) return;
   frame++;
+  updateHints();
+  updateFieldNotes();
   gameTime = frame / 60;
 
   // Orb announce: age and compute slow factor
@@ -2467,364 +2492,226 @@ function drawPaintColorBar(cx2, cy2, bw, bh, pair) {
   }
 }
 
-function renderPaintDraft(w, h, t) {
-  ctx.fillStyle = 'rgba(0,0,0,0.72)';
-  ctx.fillRect(0, 0, w, h);
-  ctx.fillStyle = '#ffeeaa';
-  ctx.font = 'bold 17px -apple-system, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('着彩刻印', w / 2, h / 2 - 120);
+// ══════════════════════════════════════════════
+//  VISUAL SYSTEM — flat, hairline, high-contrast
+// ══════════════════════════════════════════════
+const TAU        = Math.PI * 2;
+const BG         = '#f6f7f8';
+const BG_PH      = '#050f0e';
+const INK        = '#16181b';
+const INK2       = 'rgba(22,24,27,0.56)';
+const INK3       = 'rgba(22,24,27,0.26)';
+const PANEL      = 'rgba(16,18,21,0.92)';
+const PANEL_LINE = 'rgba(255,255,255,0.12)';
+const WHITE2     = 'rgba(255,255,255,0.64)';
+const WHITE3     = 'rgba(255,255,255,0.34)';
+const PH_COL     = '#44ffdd';
+const BUFF_COL   = '#3db86a';
+const DEBUFF_COL = '#e8453c';
+const F_TXT = '"Barlow", "Zen Kaku Gothic New", -apple-system, "Hiragino Sans", sans-serif';
+const fnt = (px, w = 700) => `${w} ${px}px ${F_TXT}`;
+const COLOR_NAME = { red: '赤', blue: '青', yellow: '黄', green: '緑', purple: '紫' };
+const ORB_CHAR = { normal: '刻', fusion: '融', enemy_boost: '増', infection: '感', phantom: '幻', paint: '彩' };
+const ORB_TAG  = { normal: '刻印', fusion: '融合', enemy_boost: '敵増', infection: '感染', phantom: '幻影', paint: '着彩' };
 
-  const { cards, skip, reset } = paintDraftAllBounds(w, h);
-  for (const b of cards) {
-    const p = paintDraftChoices[b.index];
-    if (!p) continue;
-    // Card bg
-    ctx.fillStyle = 'rgba(20,15,35,0.88)';
-    ctx.strokeStyle = 'rgba(220,200,255,0.38)';
-    ctx.lineWidth = 1.5;
-    ctx.save(); ctx.beginPath(); ctx.roundRect(b.x, b.y, b.w, b.h, 10); ctx.fill(); ctx.stroke(); ctx.restore();
-    // Color preview bar
-    ctx.save(); ctx.beginPath(); ctx.roundRect(b.x + 8, b.y + 10, b.w - 16, 26, 4); ctx.clip();
-    drawPaintColorBar(b.x + 8, b.y + 10, b.w - 16, 26, p.pair);
-    ctx.restore();
-    // Pair name — large
-    ctx.fillStyle = '#eeddff';
-    ctx.font = 'bold 22px -apple-system, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(p.pair.name, b.x + b.w / 2, b.y + 82);
-    // Attribute code — small sub
-    ctx.fillStyle = 'rgba(200,180,255,0.70)';
-    ctx.font = '12px -apple-system, sans-serif';
-    ctx.fillText(`${p.blend.char}/${p.motion.char}/${p.density.char}`, b.x + b.w / 2, b.y + 102);
+let RM = null; // getMods() snapshot for this render frame
+
+const _enemySprites = new Map();
+function invalidateSprites() { _enemySprites.clear(); }
+
+function hexA(hex, a) {
+  const n = parseInt(hex.slice(1, 7), 16);
+  return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`;
+}
+function makeCanvas(w, h) {
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.ceil(w)); c.height = Math.max(1, Math.ceil(h));
+  return c;
+}
+function easeOut(x) { x = Math.max(0, Math.min(1, x)); return 1 - Math.pow(1 - x, 3); }
+function clamp01(x) { return Math.max(0, Math.min(1, x)); }
+function viewScale() { const z = getMods().cameraZoom; return z !== 0 ? 1 + z * 0.4 : 1; }
+function visibleWorld(margin = 0) {
+  const s = viewScale(), w = W(), h = H();
+  const hw = w / (2 * s), hh = h / (2 * s), cx = cam.x + w / 2, cy = cam.y + h / 2;
+  return { x0: cx - hw - margin, y0: cy - hh - margin, x1: cx + hw + margin, y1: cy + hh + margin };
+}
+function w2sz(wx, wy) {
+  const s = viewScale(), w = W(), h = H();
+  return { x: (wx - cam.x - w / 2) * s + w / 2, y: (wy - cam.y - h / 2) * s + h / 2 };
+}
+function diamondPath(x, y, s, wr = 0.68) {
+  ctx.moveTo(x, y - s); ctx.lineTo(x + s * wr, y); ctx.lineTo(x, y + s); ctx.lineTo(x - s * wr, y); ctx.closePath();
+}
+function panelRect(x, y, w, h, r = 6, line = PANEL_LINE) {
+  ctx.fillStyle = PANEL;
+  ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fill();
+  ctx.strokeStyle = line; ctx.lineWidth = 1; ctx.stroke();
+}
+function textBtn(b, label, col = '#fff', line = PANEL_LINE, size = 14) {
+  panelRect(b.x, b.y, b.w, b.h, 6, line);
+  ctx.fillStyle = col; ctx.font = fnt(size, 700); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(label, b.x + b.w / 2, b.y + b.h / 2 + 1);
+  ctx.textBaseline = 'alphabetic';
+}
+function dim(alpha = 0.74) { ctx.fillStyle = `rgba(8,9,12,${alpha})`; ctx.fillRect(0, 0, W(), H()); }
+
+// ── field grid (pattern, hairlines) ─────────────
+let gridPat = null, gridPatPh = null;
+function buildGrid(ph) {
+  const S = 192;
+  const canScale = typeof DOMMatrix !== 'undefined' && typeof CanvasPattern !== 'undefined' && CanvasPattern.prototype.setTransform;
+  const k = canScale ? 2 : 1;
+  const c = makeCanvas(S * k, S * k), g = c.getContext('2d');
+  g.scale(k, k);
+  g.fillStyle = ph ? BG_PH : BG; g.fillRect(0, 0, S, S);
+  g.strokeStyle = ph ? 'rgba(68,255,221,0.09)' : '#e3e5e8'; g.lineWidth = 0.5;
+  for (let p = 48; p < S; p += 48) {
+    g.beginPath(); g.moveTo(p + 0.25, 0); g.lineTo(p + 0.25, S); g.stroke();
+    g.beginPath(); g.moveTo(0, p + 0.25); g.lineTo(S, p + 0.25); g.stroke();
   }
-
-  // Bottom buttons
-  const drawBtn = (b, label, col, strokeCol) => {
-    ctx.fillStyle = col;
-    ctx.strokeStyle = strokeCol;
-    ctx.lineWidth = 1.2;
-    ctx.save(); ctx.beginPath(); ctx.roundRect(b.x, b.y, b.w, b.h, 8); ctx.fill(); ctx.stroke(); ctx.restore();
-    ctx.fillStyle = 'rgba(255,255,255,0.80)';
-    ctx.font = '13px -apple-system, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(label, b.x + b.w / 2, b.y + 25);
-  };
-  drawBtn(skip,  '選ばない',   'rgba(40,35,55,0.80)',  'rgba(200,180,255,0.35)');
-  drawBtn(reset, '着彩リセット', 'rgba(55,25,25,0.80)', 'rgba(255,160,160,0.40)');
+  g.strokeStyle = ph ? 'rgba(68,255,221,0.18)' : '#d3d6db'; g.lineWidth = 0.75;
+  g.beginPath(); g.moveTo(0.4, 0); g.lineTo(0.4, S); g.moveTo(0, 0.4); g.lineTo(S, 0.4); g.stroke();
+  const pat = ctx.createPattern(c, 'repeat');
+  if (k !== 1) pat.setTransform(new DOMMatrix().scale(1 / k));
+  return pat;
+}
+function drawGrid() {
+  if (!gridPat) { gridPat = buildGrid(false); gridPatPh = buildGrid(true); }
+  const v = visibleWorld(4);
+  ctx.fillStyle = phantomMode ? gridPatPh : gridPat;
+  ctx.fillRect(v.x0, v.y0, v.x1 - v.x0, v.y1 - v.y0);
 }
 
-function renderPaintResetButton(w, h) {
-  if (activePaints.length === 0) return;
-  const rb = paintResetBounds(w, h);
-  ctx.fillStyle = 'rgba(30,20,50,0.75)';
-  ctx.strokeStyle = 'rgba(200,180,255,0.45)';
-  ctx.lineWidth = 1;
-  ctx.save(); ctx.beginPath(); ctx.roundRect(rb.x, rb.y, rb.w, rb.h, 7); ctx.fill(); ctx.stroke(); ctx.restore();
-  ctx.fillStyle = 'rgba(220,200,255,0.75)';
-  ctx.font = '11px -apple-system, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('着彩リセット', rb.x + rb.w / 2, rb.y + 20);
+// ── enemy body sprite ───────────────────────────
+function enemySprite(colors, r, hidden, focused) {
+  const k = (hidden ? 'h' : colors.join('+')) + '|' + r + '|' + (focused ? 1 : 0);
+  let s = _enemySprites.get(k);
+  if (s) return s;
+  const S = 3, box = r * 2 + 8;
+  const c = makeCanvas(box * S, box * S), g = c.getContext('2d');
+  g.scale(S, S); g.translate(box / 2, box / 2);
+  const cols = hidden ? ['#8c9096'] : colors.map(cc => COLOR_HEX[cc]);
+  if (cols.length > 1) {
+    const gr = g.createLinearGradient(-r, 0, r, 0);
+    cols.forEach((cc, i) => gr.addColorStop(i / (cols.length - 1), hexA(cc, focused ? 0.34 : 0.22)));
+    g.fillStyle = gr;
+  } else g.fillStyle = hexA(cols[0], focused ? 0.20 : 0.10);
+  g.beginPath(); g.arc(0, 0, r, 0, TAU); g.fill();
+  if (cols.length > 1) {
+    const seg = TAU / cols.length;
+    g.lineWidth = focused ? 2.6 : 2;
+    cols.forEach((cc, i) => { g.strokeStyle = cc; g.beginPath(); g.arc(0, 0, r, -Math.PI / 2 + i * seg + 0.06, -Math.PI / 2 + (i + 1) * seg - 0.06); g.stroke(); });
+  } else {
+    g.strokeStyle = focused ? INK : '#5b6068'; g.lineWidth = focused ? 2 : 1.4;
+    g.beginPath(); g.arc(0, 0, r, 0, TAU); g.stroke();
+  }
+  const kr = r * 0.24, ky = -r * 0.16;
+  g.fillStyle = cols.length > 1 ? INK : cols[0];
+  g.beginPath(); g.arc(0, ky, kr, 0, TAU); g.fill();
+  g.beginPath();
+  g.moveTo(-kr * 0.5, ky + kr * 0.5); g.lineTo(kr * 0.5, ky + kr * 0.5);
+  g.lineTo(kr * 0.95, ky + kr * 2.4); g.lineTo(-kr * 0.95, ky + kr * 2.4); g.closePath(); g.fill();
+  s = { c, box };
+  _enemySprites.set(k, s);
+  return s;
 }
 
-function render() {
-  const w = W(), h = H();
-  const t = performance.now() / 1000;
-
-  ctx.fillStyle = phantomMode ? '#08100e' : '#f8f7f4';
-  ctx.fillRect(0, 0, w, h);
-
-  // ── World transform (camera zoom: positive=zoom in/narrow, negative=zoom out/wide) ──
-  ctx.save();
-  const zoomMod = getMods().cameraZoom;
-  if (zoomMod !== 0) {
-    const scale = 1 + zoomMod * 0.4;
-    ctx.translate(w / 2, h / 2);
-    ctx.scale(scale, scale);
-    ctx.translate(-w / 2, -h / 2);
-  }
-  ctx.translate(-cam.x, -cam.y);
-
-  if (!phantomMode) drawInfiniteGrid();
-  renderEffectsWorld(t);
-  renderKeyDrops(t);
-  renderInscriptionOrbs(t);
-  if (state === State.CONNECTED && connectedEnemy) renderBeam(t);
-  for (const e of enemies) if (e.alive) renderEnemy(e, t);
-  renderPlayer(t);
-
-  ctx.restore();
-
-  // 着彩レイヤー (world の上・UIの下、幻影中は無効)
-  if (activePaints.length > 0 && !phantomMode) renderPaintLayers(t);
-
-  // Phantom hue tint — plain alpha fillRect, no compositing mode (fastest possible)
-  if (phantomMode) {
-    const hue = Math.round((t * 25) % 360);
-    ctx.save();
-    ctx.globalAlpha = 0.22;
-    ctx.fillStyle = `hsl(${hue}, 90%, 55%)`;
-    ctx.fillRect(0, 0, w, h);
-    ctx.restore();
-  }
-  // ── Screen space ──
-
-  if (screenFlash) {
-    ctx.fillStyle = `rgba(${screenFlash.r},${screenFlash.g},${screenFlash.b},${screenFlash.alpha})`;
-    ctx.fillRect(0, 0, w, h);
-  }
-  renderEdgeIndicators();
-  renderInscriptionEdgeIndicators();
-  if (state === State.CONNECTED) renderCircularUI(t);
-  renderKeyPanel(t);
-  renderHUD(w, h);
-  if (orbAnnounce) renderOrbAnnounce(w, h);
-  if (state === State.GAMEOVER) renderGameOver(w, h);
-  if (state === State.DRAFT)    renderDraft(w, h, t);
-  if (state === State.PAUSED)        renderPause(w, h);
-  if (state === State.FUSION_SELECT) renderFusionSelect(w, h, t);
-  if (state === State.PAINT_DRAFT)   renderPaintDraft(w, h, t);
-}
-
-
-function renderOrbAnnounce(w, h) {
-  const a = orbAnnounce;
-  const p = a.age / a.maxAge;
-  const fadeIn  = Math.min(1, a.age / 10);
-  const fadeOut = a.age > a.maxAge - 22 ? (a.maxAge - a.age) / 22 : 1;
-  const alpha   = fadeIn * fadeOut;
-
-  // Dark overlay
-  ctx.save();
-  ctx.fillStyle = `rgba(8, 6, 18, ${0.76 * alpha})`;
-  ctx.fillRect(0, 0, w, h);
-
-  const cx = w / 2, cy = h / 2;
-
-  // Glow halo behind text
-  ctx.globalAlpha = 0.18 * alpha;
-  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 160);
-  grad.addColorStop(0, a.color);
-  grad.addColorStop(1, 'transparent');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, w, h);
-
-  // Main label
-  ctx.globalAlpha = alpha;
-  ctx.fillStyle = a.color;
-  ctx.font = `bold ${Math.round(Math.min(w, h) * 0.11)}px -apple-system, sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.shadowColor = a.color;
-  ctx.shadowBlur  = 28;
-  ctx.fillText(a.label, cx, cy + 10);
-  ctx.shadowBlur = 0;
-
-  // Sub-label (only if explicitly set)
-  if (a.sub) {
-    ctx.globalAlpha = alpha * 0.65;
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '15px -apple-system, sans-serif';
-    ctx.fillText(a.sub, cx, cy + 46);
-  }
-
-  ctx.globalAlpha = 1;
-  ctx.restore();
-}
-
-function drawInfiniteGrid() {
-  const gs  = 48;
-  const wx0 = Math.floor(cam.x / gs) * gs;
-  const wy0 = Math.floor(cam.y / gs) * gs;
-  const wx1 = cam.x + W() + gs;
-  const wy1 = cam.y + H() + gs;
-  ctx.save();
-  ctx.strokeStyle = '#e6e4de';
-  ctx.lineWidth   = 0.5;
-  for (let x = wx0; x < wx1; x += gs) {
-    ctx.beginPath(); ctx.moveTo(x, wy0); ctx.lineTo(x, wy1); ctx.stroke();
-  }
-  for (let y = wy0; y < wy1; y += gs) {
-    ctx.beginPath(); ctx.moveTo(wx0, y); ctx.lineTo(wx1, y); ctx.stroke();
-  }
-  ctx.restore();
-}
-
+// ══════════════════════════════════════════════
+//  WORLD
+// ══════════════════════════════════════════════
 function renderEffectsWorld(t) {
   for (const e of effects) {
-    const p = e.age / e.maxAge;
+    const p = e.age / e.maxAge, q = 1 - p;
     ctx.save();
     if (e.type === 'explosion') {
-      ctx.globalAlpha = (1 - p) * 0.65;
-      ctx.strokeStyle = e.color; ctx.lineWidth = 3 * (1 - p) + 0.5;
-      ctx.beginPath(); ctx.arc(e.x, e.y, p * 75, 0, Math.PI * 2); ctx.stroke();
-      ctx.globalAlpha = (1 - p) * 0.18; ctx.fillStyle = e.color;
-      ctx.beginPath(); ctx.arc(e.x, e.y, p * 50, 0, Math.PI * 2); ctx.fill();
-      ctx.globalAlpha = (1 - p) * 0.85; ctx.strokeStyle = e.color; ctx.lineWidth = 1.5;
+      const ease = easeOut(p);
+      ctx.globalAlpha = q * 0.7; ctx.strokeStyle = e.color; ctx.lineWidth = 2 * q + 0.5;
+      ctx.beginPath(); ctx.arc(e.x, e.y, ease * 72, 0, TAU); ctx.stroke();
+      ctx.globalAlpha = q * 0.12; ctx.fillStyle = e.color;
+      ctx.beginPath(); ctx.arc(e.x, e.y, ease * 46, 0, TAU); ctx.fill();
+      ctx.globalAlpha = q * 0.9; ctx.lineWidth = 1.4; ctx.beginPath();
       for (let i = 0; i < 8; i++) {
-        const a = (i / 8) * Math.PI * 2;
-        ctx.beginPath();
-        ctx.moveTo(e.x + Math.cos(a) * p * 35, e.y + Math.sin(a) * p * 35);
-        ctx.lineTo(e.x + Math.cos(a) * p * 65, e.y + Math.sin(a) * p * 65);
-        ctx.stroke();
+        const a = (e.seed || 0) + i / 8 * TAU;
+        ctx.moveTo(e.x + Math.cos(a) * ease * 34, e.y + Math.sin(a) * ease * 34);
+        ctx.lineTo(e.x + Math.cos(a) * ease * 62, e.y + Math.sin(a) * ease * 62);
       }
-    }
-    if (e.type === 'hit') {
+      ctx.stroke();
+    } else if (e.type === 'hit') {
       const sz = e.crit ? 36 : 22;
-      ctx.globalAlpha = (1 - p) * (e.crit ? 0.9 : 0.75);
-      ctx.strokeStyle = e.color; ctx.lineWidth = e.crit ? 3 : 1.5;
-      ctx.beginPath(); ctx.arc(e.x, e.y, p * sz, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = q * (e.crit ? 0.9 : 0.7); ctx.strokeStyle = e.color; ctx.lineWidth = e.crit ? 2.4 : 1.3;
+      ctx.beginPath(); ctx.arc(e.x, e.y, easeOut(p) * sz, 0, TAU); ctx.stroke();
       if (e.crit) {
-        ctx.globalAlpha = (1 - p) * 0.3; ctx.fillStyle = e.color;
-        ctx.beginPath(); ctx.arc(e.x, e.y, p * sz * 0.6, 0, Math.PI * 2); ctx.fill();
-        // "Crit" label — floats upward
-        ctx.globalAlpha = (1 - p) * 0.95;
-        ctx.fillStyle = '#ffe566';
-        ctx.font = 'bold 11px -apple-system, sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('Crit', e.x, e.y - 18 - p * 28);
+        ctx.globalAlpha = q; ctx.font = fnt(12, 700); ctx.textAlign = 'center';
+        ctx.fillStyle = phantomMode ? '#fff' : INK;
+        ctx.fillText('CRIT', e.x, e.y - 20 - p * 26);
       }
-    }
-    if (e.type === 'escape') {
-      ctx.globalAlpha = (1 - p) * 0.5; ctx.strokeStyle = '#888'; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(e.x, e.y, p * CFG.OUTER_R, 0, Math.PI * 2); ctx.stroke();
-    }
-    if (e.type === 'miss') {
-      ctx.globalAlpha = (1 - p) * 0.55; ctx.strokeStyle = '#aaa'; ctx.lineWidth = 1.5;
-      for (let i = 0; i < 4; i++) {
-        const a = (i / 4) * Math.PI * 2 + p * Math.PI;
-        ctx.beginPath();
-        ctx.moveTo(e.x + Math.cos(a) * 6,      e.y + Math.sin(a) * 6);
-        ctx.lineTo(e.x + Math.cos(a) * p * 22, e.y + Math.sin(a) * p * 22);
-        ctx.stroke();
-      }
-    }
-    if (e.type === 'dmg') {
-      ctx.globalAlpha = (1 - p) * 0.75; ctx.strokeStyle = '#ff4444'; ctx.lineWidth = 2.5;
-      ctx.beginPath(); ctx.arc(e.x, e.y, p * 22, 0, Math.PI * 2); ctx.stroke();
-    }
-    if (e.type === 'slowAura') {
-      ctx.globalAlpha = (1 - p) * 0.55; ctx.strokeStyle = e.color; ctx.lineWidth = 2.5;
-      ctx.beginPath(); ctx.arc(e.x, e.y, p * 220, 0, Math.PI * 2); ctx.stroke();
-      ctx.globalAlpha = (1 - p) * 0.12; ctx.fillStyle = e.color;
-      ctx.beginPath(); ctx.arc(e.x, e.y, p * 220, 0, Math.PI * 2); ctx.fill();
-    }
-    if (e.type === 'healAura') {
-      ctx.globalAlpha = (1 - p) * 0.35; ctx.strokeStyle = e.color; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(e.x, e.y, p * 200, 0, Math.PI * 2); ctx.stroke();
-      ctx.globalAlpha = (1 - p) * 0.08; ctx.fillStyle = e.color;
-      ctx.beginPath(); ctx.arc(e.x, e.y, p * 200, 0, Math.PI * 2); ctx.fill();
-    }
-    if (e.type === 'chain') {
-      // Line arc from source to target
-      ctx.globalAlpha = (1 - p) * 0.85; ctx.strokeStyle = e.color; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(e.fromX, e.fromY); ctx.lineTo(e.x, e.y); ctx.stroke();
-      ctx.globalAlpha = (1 - p) * 0.6;
-      ctx.beginPath(); ctx.arc(e.x, e.y, p * 20, 0, Math.PI * 2); ctx.stroke();
-    }
-    if (e.type === 'heal') {
-      const col = COLOR_HEX['green'];
-      ctx.globalAlpha = (1 - p) * 0.8; ctx.strokeStyle = col; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(e.x, e.y, p * 30, 0, Math.PI * 2); ctx.stroke();
-      ctx.globalAlpha = (1 - p) * 0.35; ctx.fillStyle = col;
-      ctx.beginPath(); ctx.arc(e.x, e.y, p * 18, 0, Math.PI * 2); ctx.fill();
-    }
-    if (e.type === 'bomb') {
-      ctx.globalAlpha = (1 - p) * 0.55; ctx.strokeStyle = e.color; ctx.lineWidth = 3 * (1-p) + 1;
-      ctx.beginPath(); ctx.arc(e.x, e.y, p * 160, 0, Math.PI * 2); ctx.stroke();
-      ctx.globalAlpha = (1 - p) * 0.12; ctx.fillStyle = e.color;
-      ctx.beginPath(); ctx.arc(e.x, e.y, p * 160, 0, Math.PI * 2); ctx.fill();
-    }
-    if (e.type === 'noDur') {
-      ctx.globalAlpha = (1 - p) * 0.7; ctx.strokeStyle = e.color; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(e.x - 10, e.y - 10); ctx.lineTo(e.x + 10, e.y + 10); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(e.x + 10, e.y - 10); ctx.lineTo(e.x - 10, e.y + 10); ctx.stroke();
-    }
-    if (e.type === 'keyCollect') {
-      ctx.globalAlpha = (1 - p) * 0.8; ctx.strokeStyle = e.color; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(e.x, e.y, p * 28, 0, Math.PI * 2); ctx.stroke();
-      ctx.globalAlpha = (1 - p) * 0.25; ctx.fillStyle = e.color;
-      ctx.beginPath(); ctx.arc(e.x, e.y, p * 18, 0, Math.PI * 2); ctx.fill();
+    } else if (e.type === 'escape') {
+      ctx.globalAlpha = q * 0.45; ctx.strokeStyle = phantomMode ? '#fff' : INK; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(e.x, e.y, easeOut(p) * CFG.OUTER_R, 0, TAU); ctx.stroke();
+    } else if (e.type === 'miss') {
+      ctx.globalAlpha = q * 0.6; ctx.strokeStyle = phantomMode ? '#fff' : INK2; ctx.lineWidth = 1.4;
+      const d = 5 + p * 12;
+      ctx.beginPath(); ctx.moveTo(e.x - d, e.y - d); ctx.lineTo(e.x + d, e.y + d); ctx.moveTo(e.x + d, e.y - d); ctx.lineTo(e.x - d, e.y + d); ctx.stroke();
+    } else if (e.type === 'dmg') {
+      ctx.globalAlpha = q * 0.8; ctx.strokeStyle = DEBUFF_COL; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(e.x, e.y, p * 24, 0, TAU); ctx.stroke();
+    } else if (e.type === 'slowAura' || e.type === 'healAura' || e.type === 'bomb') {
+      const R = e.type === 'slowAura' ? 220 : e.type === 'healAura' ? 200 : 160, ease = easeOut(p);
+      ctx.globalAlpha = q * (e.type === 'healAura' ? 0.3 : 0.55); ctx.strokeStyle = e.color; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(e.x, e.y, ease * R, 0, TAU); ctx.stroke();
+      ctx.globalAlpha = q * 0.08; ctx.fillStyle = e.color; ctx.fill();
+    } else if (e.type === 'chain') {
+      ctx.globalAlpha = q * 0.9; ctx.strokeStyle = e.color; ctx.lineWidth = 1.6;
+      const dx = e.x - e.fromX, dy = e.y - e.fromY, len = Math.hypot(dx, dy) || 1, nx = -dy / len, ny = dx / len;
+      ctx.beginPath(); ctx.moveTo(e.fromX, e.fromY);
+      for (let i = 1; i < 5; i++) { const j = (i % 2 ? 1 : -1) * 7; ctx.lineTo(e.fromX + dx * i / 5 + nx * j, e.fromY + dy * i / 5 + ny * j); }
+      ctx.lineTo(e.x, e.y); ctx.stroke();
+    } else if (e.type === 'heal') {
+      ctx.globalAlpha = q * 0.85; ctx.strokeStyle = COLOR_HEX.green; ctx.lineWidth = 2;
+      const y = e.y - 8 - p * 16;
+      ctx.beginPath(); ctx.moveTo(e.x - 4.5, y); ctx.lineTo(e.x + 4.5, y); ctx.moveTo(e.x, y - 4.5); ctx.lineTo(e.x, y + 4.5); ctx.stroke();
+    } else if (e.type === 'keyCollect') {
+      ctx.globalAlpha = q * 0.8; ctx.strokeStyle = e.color; ctx.lineWidth = 1.5;
+      ctx.beginPath(); diamondPath(e.x, e.y, 9 + p * 16); ctx.stroke();
     }
     ctx.restore();
   }
 }
 
 function renderKeyDrops(t) {
-  for (const k of keyDrops) {
-    const bob  = Math.sin(k.age * KEY_BOB_SPEED / 60 * Math.PI * 2) * KEY_BOB_AMP;
-    const col  = COLOR_HEX[k.color];
-    const x    = k.x, y = k.y + bob;
-    const sz   = 9;
-    const pulse = 0.75 + 0.25 * Math.sin(t * 3 + k.age * 0.08);
-
-    ctx.save();
-    ctx.translate(x, y);
-
-    // Glow
-    ctx.globalAlpha = 0.18 * pulse;
-    ctx.fillStyle = col;
-    ctx.beginPath();
-    ctx.arc(0, 0, sz * 1.9, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Diamond shape
-    ctx.globalAlpha = 0.9 * pulse;
-    ctx.fillStyle = col;
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 1.2;
-    ctx.beginPath();
-    ctx.moveTo(0, -sz);
-    ctx.lineTo(sz * 0.65, 0);
-    ctx.lineTo(0, sz);
-    ctx.lineTo(-sz * 0.65, 0);
-    ctx.closePath();
-    ctx.fill();
-    ctx.globalAlpha = 0.6 * pulse;
-    ctx.stroke();
-
-    // Inner highlight
-    ctx.globalAlpha = 0.4 * pulse;
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.moveTo(0, -sz * 0.55);
-    ctx.lineTo(sz * 0.3, -sz * 0.05);
-    ctx.lineTo(0, sz * 0.15);
-    ctx.lineTo(-sz * 0.3, -sz * 0.05);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.restore();
-  }
-}
-
-function renderBeam(t) {
-  const px = player.x, py = player.y;
-  const ex = connectedEnemy.x, ey = connectedEnemy.y;
-  const flash = beamFlash > 0;
-  const N = 24;
-  const pts = [];
-  for (let i = 0; i <= N; i++) {
-    const u  = i / N;
-    const bx = px + (ex - px) * u;
-    const by = py + (ey - py) * u;
-    const dx = ex - px, dy = ey - py;
-    const len = Math.hypot(dx, dy) || 1;
-    const nx = -dy / len, ny = dx / len;
-    const wob = Math.sin(u * Math.PI * 4 + t * 9) * 4.5 * Math.sin(u * Math.PI);
-    pts.push({ x: bx + nx * wob, y: by + ny * wob });
-  }
+  const v = visibleWorld(30);
   ctx.save();
-  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-  const beamCol = connectedEnemy ? COLOR_HEX[connectedEnemy.color] : CFG.KEY_COLOR;
-  ctx.globalAlpha = 0.18; ctx.strokeStyle = beamCol; ctx.lineWidth = 12;
-  drawPath(pts);
-  ctx.globalAlpha = flash ? 1.0 : 0.88;
-  ctx.strokeStyle = flash ? '#fff' : beamCol;
-  ctx.lineWidth   = flash ? 4.5 : 2.0;
-  drawPath(pts);
+  for (const k of keyDrops) {
+    if (k.x < v.x0 || k.x > v.x1 || k.y < v.y0 || k.y > v.y1) continue;
+    const bob = Math.sin(k.age * KEY_BOB_SPEED / 60 * TAU) * KEY_BOB_AMP;
+    const col = COLOR_HEX[k.color], x = k.x, y = k.y + bob, sz = 8.5;
+    const pulse = (t * 1.2 + k.age * 0.01) % 1;
+    ctx.globalAlpha = (1 - pulse) * 0.45; ctx.strokeStyle = col; ctx.lineWidth = 1;
+    ctx.beginPath(); diamondPath(x, y, sz + 3 + pulse * 9); ctx.stroke();
+    ctx.globalAlpha = 1; ctx.fillStyle = col;
+    ctx.beginPath(); diamondPath(x, y, sz); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.beginPath(); ctx.moveTo(x, y - sz * 0.6); ctx.lineTo(x + sz * 0.28, y - sz * 0.05); ctx.lineTo(x, y + sz * 0.1); ctx.lineTo(x - sz * 0.28, y - sz * 0.05); ctx.closePath(); ctx.fill();
+  }
   ctx.restore();
 }
 
+function renderBeam(t) {
+  const px = player.x, py = player.y, ex = connectedEnemy.x, ey = connectedEnemy.y;
+  const flash = beamFlash > 0, N = 24, pts = [];
+  const dx = ex - px, dy = ey - py, len = Math.hypot(dx, dy) || 1, nx = -dy / len, ny = dx / len;
+  for (let i = 0; i <= N; i++) {
+    const u = i / N, wob = Math.sin(u * Math.PI * 4 + t * 9) * 3.5 * Math.sin(u * Math.PI);
+    pts.push({ x: px + dx * u + nx * wob, y: py + dy * u + ny * wob });
+  }
+  const col = COLOR_HEX[connectedEnemy.color] || CFG.KEY_COLOR;
+  ctx.save();
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.globalAlpha = 0.16; ctx.strokeStyle = col; ctx.lineWidth = 8; drawPath(pts);
+  ctx.globalAlpha = 1; ctx.strokeStyle = flash ? (phantomMode ? '#fff' : INK) : col; ctx.lineWidth = flash ? 3.2 : 1.6; drawPath(pts);
+  ctx.restore();
+}
 function drawPath(pts) {
   ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
   for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
@@ -2832,1456 +2719,1036 @@ function drawPath(pts) {
 }
 
 function renderEnemy(e, t) {
-  const focused    = connectedEnemy === e;
-  const ecol       = COLOR_HEX[e.color] || CFG.KEY_COLOR;
-  const worldDist  = Math.hypot(e.x - player.x, e.y - player.y);
-  const colorVisible = getMods().enemyColorFarHide === 0 || worldDist < 180;
-  const ecol_v     = colorVisible ? ecol : '#888888';
-  const getCol     = c => colorVisible ? (COLOR_HEX[c] || '#888888') : '#888888';
+  const focused = connectedEnemy === e;
+  const dist = Math.hypot(e.x - player.x, e.y - player.y);
+  const colorVisible = RM.enemyColorFarHide === 0 || dist < 180;
+  const cols = e.colors || [e.color];
+  const ecol = colorVisible ? (COLOR_HEX[e.color] || INK) : '#8c9096';
+  const r = e.r;
   ctx.save();
   ctx.translate(e.x, e.y);
   if (e.crackShake > 0) ctx.translate((Math.random() - 0.5) * 2.5, (Math.random() - 0.5) * 1.5);
 
-  // Proximity pulse (colored)
-  if (state === State.IDLE) {
-    const d = worldDist;
-    if (d < 210) {
-      ctx.globalAlpha = 0.10 + 0.07 * Math.sin(t * 3.5);
-      ctx.strokeStyle = ecol_v; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.arc(0, 0, e.r + 12, 0, Math.PI * 2); ctx.stroke();
-      ctx.globalAlpha = 1;
-    }
+  // ranged auras only near the player, where they matter
+  if (cols.includes('green') && dist < 520) {
+    ctx.globalAlpha = 0.16; ctx.strokeStyle = colorVisible ? COLOR_HEX.green : '#8c9096'; ctx.lineWidth = 1; ctx.setLineDash([2, 6]);
+    ctx.beginPath(); ctx.arc(0, 0, 200, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
   }
-
-  const allColors = e.colors || [e.color];
-
-  // Green healer aura (any component)
-  if (allColors.includes('green')) {
-    ctx.globalAlpha = 0.12 + 0.06 * Math.sin(t * 2.5 + (e.healAuraTimer || 0) * 0.1);
-    ctx.strokeStyle = getCol('green'); ctx.lineWidth = 1.2; ctx.setLineDash([4, 6]);
-    ctx.beginPath(); ctx.arc(0, 0, 200, 0, Math.PI * 2); ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.globalAlpha = 1;
+  if (cols.includes('purple') && dist < 340) {
+    const near = clamp01(1 - (dist - 150) / 190);
+    ctx.globalAlpha = 0.12 + 0.45 * near; ctx.strokeStyle = colorVisible ? COLOR_HEX.purple : '#8c9096'; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.arc(0, 0, 150, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
   }
-
-  // Purple warning pulse
-  if (allColors.includes('purple')) {
-    ctx.globalAlpha = 0.07 + 0.05 * Math.sin(t * 5);
-    ctx.strokeStyle = getCol('purple'); ctx.lineWidth = 1.5; ctx.setLineDash([2, 5]);
-    ctx.beginPath(); ctx.arc(0, 0, 150, 0, Math.PI * 2); ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.globalAlpha = 1;
-  }
-
-  // Slow frost ring
   if (e.slowTimer > 0) {
-    const fp = e.slowTimer / 180;
-    ctx.globalAlpha = fp * 0.55;
-    ctx.strokeStyle = COLOR_HEX['blue']; ctx.lineWidth = 2;
-    ctx.setLineDash([3, 4]);
-    ctx.beginPath(); ctx.arc(0, 0, e.r + 10, 0, Math.PI * 2); ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.globalAlpha = 1;
+    ctx.globalAlpha = Math.min(1, e.slowTimer / 180) * 0.7; ctx.strokeStyle = COLOR_HEX.blue; ctx.lineWidth = 1.2; ctx.setLineDash([2, 3]);
+    ctx.beginPath(); ctx.arc(0, 0, r + 9, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
   }
-
-  // Body — fusion: gradient fill + arc-segment outer ring (mirrors fused key ring)
-  if (e.fusion && allColors.length > 1) {
-    // Gradient fill — visible blend of all component colors (or gray if hidden)
-    const grad = ctx.createLinearGradient(-e.r, 0, e.r, 0);
-    allColors.forEach((c, ci) => {
-      const stop = ci / Math.max(allColors.length - 1, 1);
-      grad.addColorStop(stop, getCol(c) + (focused ? '70' : '45'));
-    });
-    ctx.fillStyle = grad;
-    ctx.globalAlpha = 1;
-    ctx.beginPath(); ctx.arc(0, 0, e.r, 0, Math.PI * 2); ctx.fill();
-
-    // Outer ring: one arc segment per color, slowly rotating dashes
-    const segAngle = (Math.PI * 2) / allColors.length;
-    const dashOff  = -(t * 0.38 % 1) * 18;
-    allColors.forEach((c, ci) => {
-      ctx.globalAlpha = focused ? 0.92 : 0.78;
-      ctx.strokeStyle = getCol(c);
-      ctx.lineWidth   = focused ? 3.0 : 2.2;
-      ctx.setLineDash([9, 5]);
-      ctx.lineDashOffset = dashOff - ci * 14;
-      ctx.beginPath();
-      ctx.arc(0, 0, e.r, ci * segAngle, (ci + 1) * segAngle);
-      ctx.stroke();
-    });
-    ctx.setLineDash([]); ctx.lineDashOffset = 0;
-    ctx.globalAlpha = 1;
-  } else {
-    ctx.fillStyle   = focused ? `${ecol_v}28` : `${ecol_v}12`;
-    ctx.strokeStyle = focused ? '#222' : '#777';
-    ctx.lineWidth   = focused ? 2.5 : 1.5;
-    ctx.beginPath(); ctx.arc(0, 0, e.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  if (state === State.IDLE && dist < 210) {
+    ctx.globalAlpha = 0.14 + 0.08 * Math.sin(t * 3.5); ctx.strokeStyle = ecol; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(0, 0, r + 14, 0, TAU); ctx.stroke();
   }
+  ctx.globalAlpha = 1;
+  const spr = enemySprite(cols, r, !colorVisible, focused);
+  ctx.drawImage(spr.c, -spr.box / 2, -spr.box / 2, spr.box, spr.box);
 
-  // Keyhole (colored)
-  const kr = e.r * 0.28, ky = -e.r * 0.22, ksw = e.r * 0.22, ksh = e.r * 0.45;
-  ctx.strokeStyle = focused ? ecol_v : `${ecol_v}99`; ctx.lineWidth = 1.2;
-  ctx.beginPath(); ctx.arc(0, ky, kr, 0, Math.PI * 2); ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(-ksw, ky + kr * 0.7); ctx.lineTo(-ksw, ky + ksh);
-  ctx.lineTo( ksw, ky + ksh);      ctx.lineTo( ksw, ky + kr * 0.7);
-  ctx.stroke();
-
-
-  // HP pips — start from top, decrease clockwise
-  for (let i = 0; i < e.maxHp; i++) {
-    const a = -(i / e.maxHp) * Math.PI * 2 - Math.PI * 0.5;
-    const pipCol = colorVisible ? COLOR_HEX[allColors[i % allColors.length]] : '#666666';
-    ctx.fillStyle = i < e.hp ? pipCol : '#888888';
-    ctx.beginPath(); ctx.arc(Math.cos(a) * (e.r + 8), Math.sin(a) * (e.r + 8), 2.5, 0, Math.PI * 2); ctx.fill();
+  if (focused) { // target brackets
+    const b = r + 7, l = 5;
+    ctx.strokeStyle = ecol; ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+      ctx.moveTo(sx * b, sy * (b - l)); ctx.lineTo(sx * b, sy * b); ctx.lineTo(sx * (b - l), sy * b);
+    }
+    ctx.stroke();
   }
-
   const lost = e.maxHp - e.hp;
   if (lost > 0) {
-    ctx.strokeStyle = '#aaa'; ctx.lineWidth = 1;
-    for (let i = 0; i < lost; i++) {
-      const a = -(i / e.maxHp) * Math.PI * 2 - Math.PI * 0.5;
-      ctx.beginPath();
-      ctx.moveTo(Math.cos(a) * e.r * 0.45,        Math.sin(a) * e.r * 0.45);
-      ctx.lineTo(Math.cos(a + 0.35) * e.r * 0.88, Math.sin(a + 0.35) * e.r * 0.88);
-      ctx.stroke();
+    ctx.strokeStyle = INK2; ctx.lineWidth = 0.9; ctx.beginPath();
+    for (let i = 0; i < Math.min(lost, 6); i++) {
+      const a = -(i / e.maxHp) * TAU - Math.PI * 0.5;
+      ctx.moveTo(Math.cos(a) * r * 0.45, Math.sin(a) * r * 0.45);
+      ctx.lineTo(Math.cos(a + 0.35) * r * 0.88, Math.sin(a + 0.35) * r * 0.88);
     }
+    ctx.stroke();
+  }
+  // HP pips, batched per colour
+  const pr = r + 7, maxHp = e.maxHp, hp = Math.min(Math.max(0, e.hp), maxHp);
+  const pip = (i, rad) => { const a = -(i / maxHp) * TAU - Math.PI * 0.5, x = Math.cos(a) * pr, y = Math.sin(a) * pr; ctx.moveTo(x + rad, y); ctx.arc(x, y, rad, 0, TAU); };
+  if (cols.length === 1 || !colorVisible) {
+    ctx.fillStyle = colorVisible ? COLOR_HEX[cols[0]] : '#6c7076';
+    ctx.beginPath(); for (let i = 0; i < hp; i++) pip(i, 2.2); ctx.fill();
+  } else {
+    for (let ci = 0; ci < cols.length; ci++) {
+      ctx.fillStyle = COLOR_HEX[cols[ci]];
+      ctx.beginPath(); for (let i = ci; i < hp; i += cols.length) pip(i, 2.2); ctx.fill();
+    }
+  }
+  if (hp < maxHp) {
+    ctx.fillStyle = 'rgba(140,144,150,0.45)';
+    ctx.beginPath(); for (let i = Math.ceil(hp); i < maxHp; i++) pip(i, 1.4); ctx.fill();
   }
   ctx.restore();
 }
 
+const mochi = { sq: 0, sqv: 0, pvx: 0, pvy: 0, kickA: 0, lx: 0, ly: 0 };
 function renderPlayer(t) {
+  const r = player.r, ph = phantomMode;
   ctx.save();
   ctx.translate(player.x, player.y);
   if (player.invincible > 0 && Math.floor(player.invincible / 3) % 2 === 1) ctx.globalAlpha = 0.35;
-
-  // Hit flash ring
   if (player.hitFlash > 0) {
-    ctx.save();
-    ctx.globalAlpha = (player.hitFlash / 22) * 0.5;
-    ctx.fillStyle = '#ff4444';
-    ctx.beginPath(); ctx.arc(0, 0, player.r + 6, 0, Math.PI * 2); ctx.fill();
-    ctx.restore();
+    ctx.save(); ctx.globalAlpha *= (player.hitFlash / 22) * 0.5; ctx.fillStyle = DEBUFF_COL;
+    ctx.beginPath(); ctx.arc(0, 0, r + 6, 0, TAU); ctx.fill(); ctx.restore();
   }
-
-  ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.arc(0, 0, player.r, 0, Math.PI * 2); ctx.stroke();
-
-  ctx.fillStyle = '#242424';
-  ctx.beginPath(); ctx.arc(0, 0, player.r * 0.65, 0, Math.PI * 2); ctx.fill();
-
-  const er = player.r * 0.42, ey0 = -player.r * 0.1;
-  ctx.strokeStyle = '#f0ede6'; ctx.fillStyle = '#f0ede6'; ctx.lineWidth = 1; ctx.lineCap = 'round';
-  for (const ex of [-er, er]) {
-    ctx.beginPath(); ctx.arc(ex, ey0, player.r * 0.1, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(ex - player.r * 0.28, ey0); ctx.lineTo(ex + player.r * 0.28, ey0); ctx.stroke();
-  }
-
-  const pSlot = activeSlot();
-  const dotX  = player.r * 0.68, dotY = -player.r * 0.68, dotR = player.r * 0.28;
-  if (pSlot.colors.length > 1) {
-    const grad = ctx.createLinearGradient(dotX - dotR, dotY, dotX + dotR, dotY);
-    pSlot.colors.forEach((c, ci) => grad.addColorStop(ci / Math.max(pSlot.colors.length - 1, 1), COLOR_HEX[c]));
-    ctx.fillStyle = grad;
-  } else {
-    ctx.fillStyle = pSlot.dur > 0 ? (COLOR_HEX[pSlot.colors[0]] || CFG.KEY_COLOR) : '#888';
-  }
-  ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.arc(dotX, dotY, dotR, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-
-  ctx.restore();
-}
-
-function renderCircularUI(t) {
-  const ps = playerScreenPos();
-  const cx = ps.x, cy = ps.y;
-  const shakeX = uiShake > 0 ? Math.sin(uiShake * 1.8) * (uiShake / 10) * 5 : 0;
-  const _slot  = activeSlot();
-  const keyCol = _slot.dur > 0 ? (COLOR_HEX[_slot.colors[0]] || CFG.KEY_COLOR) : '#888888';
-
+  // もちもち: a spring squash kicked by sudden velocity changes, stretch with speed, idle breathing
+  const spd = Math.hypot(player.vx, player.vy);
+  const dvx = player.vx - mochi.pvx, dvy = player.vy - mochi.pvy, dv = Math.hypot(dvx, dvy);
+  if (dv > 0.8) { mochi.sqv += Math.min(dv, 10) * 0.022; mochi.kickA = Math.atan2(dvy, dvx); }
+  mochi.pvx = player.vx; mochi.pvy = player.vy;
+  mochi.sqv += -mochi.sq * 0.22; mochi.sqv *= 0.8; mochi.sq += mochi.sqv;
+  const st = Math.min(spd / CFG.MAX_SPEED, 1) * 0.2;
+  const along = spd > 0.4 ? Math.atan2(player.vy, player.vx) : mochi.kickA;
+  const breathe = spd < 0.4 ? Math.sin(t * 2.4) * 0.03 : 0;
   ctx.save();
-  ctx.translate(shakeX, 0);
-
-  // Inner ring (unlock zone) — per-color arc segments for fused slots
-  const dashOff = -(t * 0.55 % 1) * 20;
-  if (_slot.colors.length > 1 && _slot.dur > 0) {
-    const segAngle = (Math.PI * 2) / _slot.colors.length;
-    _slot.colors.forEach((c, ci) => {
-      ctx.globalAlpha = 1.0;
-      ctx.strokeStyle = COLOR_HEX[c]; ctx.lineWidth = 3.5;
-      ctx.setLineDash([13, 7]); ctx.lineDashOffset = dashOff - ci * 20;
-      ctx.beginPath();
-      ctx.arc(cx, cy, CFG.INNER_R, ci * segAngle, (ci + 1) * segAngle);
-      ctx.stroke();
-    });
-    ctx.setLineDash([]); ctx.lineDashOffset = 0; ctx.globalAlpha = 1;
-    const ringGrad = ctx.createLinearGradient(cx - CFG.INNER_R, cy, cx + CFG.INNER_R, cy);
-    _slot.colors.forEach((c, ci) => ringGrad.addColorStop(ci / Math.max(_slot.colors.length - 1, 1), COLOR_HEX[c] + '30'));
-    ctx.globalAlpha = 0.18; ctx.fillStyle = ringGrad;
-    ctx.beginPath(); ctx.arc(cx, cy, CFG.INNER_R, 0, Math.PI * 2); ctx.fill();
-    ctx.globalAlpha = 1;
-  } else {
-    ctx.globalAlpha = 1.0; ctx.strokeStyle = keyCol; ctx.lineWidth = 3.5;
-    ctx.setLineDash([13, 7]); ctx.lineDashOffset = dashOff;
-    ctx.beginPath(); ctx.arc(cx, cy, CFG.INNER_R, 0, Math.PI * 2); ctx.stroke();
-    ctx.setLineDash([]); ctx.lineDashOffset = 0;
-    ctx.globalAlpha = 0.18; ctx.fillStyle = keyCol;
-    ctx.beginPath(); ctx.arc(cx, cy, CFG.INNER_R, 0, Math.PI * 2); ctx.fill();
-    ctx.globalAlpha = 1;
-  }
-
-  // Direction guides: show only as many arrows as hits remaining to kill
-  if (connectedEnemy) {
-    const q    = connectedEnemy.angleQueue;
-    const uiMods  = getMods();
-    const hasKey  = _slot.dur > 0;
-    const eCols   = connectedEnemy.colors || [connectedEnemy.color];
-    const dmg     = (hasKey && _slot.colors.some(c => eCols.includes(c))) ? 2 : 1;
-    const hitsLeft = Math.ceil(connectedEnemy.hp / dmg);
-    const maxShow  = Math.max(1, 3 - Math.round(uiMods.predictArrowSub));
-    const show    = Math.min(hitsLeft, maxShow);
-    const dynamicTol = Math.max(5 * Math.PI / 180, CFG.UNLOCK_TOLERANCE + uiMods.flickTolerance);
-    const ghostAlpha = ghostTimer > 0 ? Math.min(ghostTimer / 25, 1) : 0.55;
-    const arrowColors = _slot.dur > 0 && _slot.colors.length > 1 ? _slot.colors.map(c => COLOR_HEX[c]) : null;
-
-    if (show >= 3 && q.length > 2) {
-      ctx.globalAlpha = 0.25;
-      renderDirectionGuide(cx, cy, q[2], keyCol, 2, dynamicTol, arrowColors);
-    }
-    if (show >= 2 && q.length > 1) {
-      ctx.globalAlpha = 0.52;
-      renderDirectionGuide(cx, cy, q[1], keyCol, 3, dynamicTol, arrowColors);
-    }
-    ctx.globalAlpha = ghostAlpha;
-    renderDirectionGuide(cx, cy, q[0], keyCol, 5, dynamicTol, arrowColors);
-    ctx.globalAlpha = 1;
-  }
-
-  // cannotEscape indicator
-  if (getMods().cannotEscape > 0) {
-    ctx.fillStyle = 'rgba(232,69,60,0.7)';
-    ctx.font = 'bold 10px -apple-system, sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('⛓ 離脱不可', cx, cy + CFG.INNER_R + 22);
-  } else {
-    ctx.fillStyle = 'rgba(110,108,103,0.55)';
-    ctx.font = '11px -apple-system, "Helvetica Neue", sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('円内フリック: 解錠  円外フリック: 離脱＆移動', cx, cy + CFG.INNER_R + 22);
-  }
-
-  ctx.restore();
-}
-
-// lineW: stem line width (also scales arrowhead); tol: effective angle tolerance in radians
-// colors: optional hex color array for multi-color gradient (fused slots)
-function renderDirectionGuide(cx, cy, angle, color, lineW = 4, tol = CFG.UNLOCK_TOLERANCE, colors = null) {
-  const stemStart = CFG.INNER_R * 0.25;
-  const stemEnd   = CFG.OUTER_R * 0.88;
-  const ex = cx + Math.cos(angle) * stemEnd;
-  const ey = cy + Math.sin(angle) * stemEnd;
-  const ssx = cx + Math.cos(angle) * stemStart;
-  const ssy = cy + Math.sin(angle) * stemStart;
-  const useGrad = colors && colors.length > 1;
-
-  // Tolerance fan
-  const safeTol = Math.max(5 * Math.PI / 180, tol);
-  const baseAlpha = ctx.globalAlpha;
-  ctx.save();
-  ctx.globalAlpha = baseAlpha * 0.38;
-  if (useGrad) {
-    const fanGrad = ctx.createLinearGradient(
-      cx + Math.cos(angle - safeTol) * CFG.OUTER_R * 0.85,
-      cy + Math.sin(angle - safeTol) * CFG.OUTER_R * 0.85,
-      cx + Math.cos(angle + safeTol) * CFG.OUTER_R * 0.85,
-      cy + Math.sin(angle + safeTol) * CFG.OUTER_R * 0.85
-    );
-    colors.forEach((c, ci) => fanGrad.addColorStop(ci / Math.max(colors.length - 1, 1), c));
-    ctx.fillStyle = fanGrad;
-  } else {
-    ctx.fillStyle = color;
-  }
+  ctx.rotate(along);
+  ctx.scale(1 + st + mochi.sq, Math.max(0.6, 1 - st * 0.55 - mochi.sq * 0.7));
+  ctx.rotate(-along);
+  ctx.scale(1 - breathe * 0.5, 1 + breathe);
   ctx.beginPath();
-  ctx.moveTo(cx + Math.cos(angle - safeTol) * CFG.INNER_R,
-             cy + Math.sin(angle - safeTol) * CFG.INNER_R);
-  ctx.arc(cx, cy, CFG.OUTER_R * 0.85, angle - safeTol, angle + safeTol);
-  ctx.arc(cx, cy, CFG.INNER_R,        angle + safeTol, angle - safeTol, true);
+  for (let i = 0; i <= 36; i++) {
+    const a = i / 36 * TAU;
+    const rr = r * (1 + 0.045 * Math.sin(a * 3 + t * 5) + 0.03 * Math.sin(a * 5 - t * 3.3));
+    if (i === 0) ctx.moveTo(Math.cos(a) * rr, Math.sin(a) * rr); else ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
+  }
   ctx.closePath();
-  ctx.fill();
-  ctx.restore();
+  ctx.fillStyle = ph ? '#e9fffb' : '#1a1a1a'; ctx.fill();
 
-  // Stem
-  if (useGrad) {
-    const stemGrad = ctx.createLinearGradient(ssx, ssy, ex, ey);
-    colors.forEach((c, ci) => stemGrad.addColorStop(ci / Math.max(colors.length - 1, 1), c));
-    ctx.strokeStyle = stemGrad;
-  } else {
-    ctx.strokeStyle = color;
+  // 視線: thread target, else travel direction, else the nearest lock in view
+  let tx = 0, ty = 0;
+  if (connectedEnemy) { const a = Math.atan2(connectedEnemy.y - player.y, connectedEnemy.x - player.x); tx = Math.cos(a); ty = Math.sin(a); }
+  else if (spd > 0.6) { tx = player.vx / spd; ty = player.vy / spd; }
+  else {
+    let best = null, bd = 260;
+    for (const e of enemies) { if (!e.alive) continue; const d = Math.hypot(e.x - player.x, e.y - player.y); if (d < bd) { bd = d; best = e; } }
+    if (best) { const a = Math.atan2(best.y - player.y, best.x - player.x); tx = Math.cos(a) * 0.8; ty = Math.sin(a) * 0.8; }
   }
-  ctx.lineWidth = lineW; ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.moveTo(ssx, ssy);
-  ctx.lineTo(ex, ey);
-  ctx.stroke();
-
-  // Arrowhead (tip = last color in gradient)
-  const tipCol = useGrad ? colors[colors.length - 1] : color;
-  const hw = Math.PI / 5;
-  const hs = 10 + lineW * 2.4;
-  ctx.fillStyle = tipCol;
-  ctx.beginPath();
-  ctx.moveTo(ex, ey);
-  ctx.lineTo(ex - Math.cos(angle - hw) * hs, ey - Math.sin(angle - hw) * hs);
-  ctx.lineTo(ex - Math.cos(angle + hw) * hs, ey - Math.sin(angle + hw) * hs);
-  ctx.closePath();
-  ctx.fill();
-}
-
-// Returns screen-space slot descriptors for the key panel
-function keyPanelSlots() {
-  const w = W(), h = H();
-  const slotR   = 28;
-  const spacing = 68;
-  const n       = keySlots.length;
-  const totalW  = Math.max(0, n - 1) * spacing;
-  const panelY  = h - 62;
-  return keySlots.map((slot, i) => ({
-    slot,
-    idx: i,
-    cx: w / 2 - totalW / 2 + i * spacing,
-    cy: panelY,
-    r:  slotR,
-  }));
-}
-
-function renderKeyPanel(t) {
-  const w = W(), h = H();
-  const slots  = keyPanelSlots();
-  if (!slots.length) return;
-  const panelY = h - 62;
-  const DUR_MAX = 24;
-
-  // Background pill
-  ctx.save();
-  ctx.globalAlpha = 0.72;
-  ctx.fillStyle = '#1e1e1e';
-  const pw = slots[slots.length - 1].cx - slots[0].cx + 80;
-  roundRect(slots[0].cx - 40, panelY - 38, pw, 88, 18);
-  ctx.restore();
-
-  for (const s of slots) {
-    const slot    = s.slot;
-    const dur     = slot.dur;
-    const active  = s.idx === selectedSlotIdx;
-    const hasKey  = dur > 0;
-    const cols    = slot.colors;
-    const primCol = COLOR_HEX[cols[0]];
-    const drawCol = (active && !hasKey) ? '#888888' : primCol;
-    const pulse   = active ? 0.85 + 0.15 * Math.sin(t * 4) : 1;
-    const isFused = cols.length > 1;
-
-    ctx.save();
-
-    // Durability arc track (dim full ring)
-    ctx.strokeStyle = drawCol;
-    ctx.lineWidth   = 3;
-    ctx.globalAlpha = 0.15;
-    ctx.beginPath(); ctx.arc(s.cx, s.cy, s.r + 4, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2); ctx.stroke();
-
-    // Filled durability arc — for fused slots draw each color's segment
-    if (dur > 0) {
-      const ratio  = Math.min(dur / DUR_MAX, 1);
-      const arcEnd = -Math.PI / 2 + Math.PI * 2 * ratio;
-      ctx.globalAlpha = active ? 0.85 * pulse : 0.5;
-      ctx.lineWidth   = 3;
-      if (isFused) {
-        const segSize = (arcEnd - (-Math.PI / 2)) / cols.length;
-        for (let ci = 0; ci < cols.length; ci++) {
-          ctx.strokeStyle = COLOR_HEX[cols[ci]];
-          ctx.beginPath();
-          ctx.arc(s.cx, s.cy, s.r + 4,
-            -Math.PI / 2 + ci * segSize,
-            -Math.PI / 2 + (ci + 1) * segSize);
-          ctx.stroke();
-        }
-      } else {
-        ctx.strokeStyle = drawCol;
-        ctx.beginPath();
-        ctx.arc(s.cx, s.cy, s.r + 4, -Math.PI / 2, arcEnd);
-        ctx.stroke();
-      }
-    }
-
-    // Active: glow halo + thick ring + bottom triangle indicator
-    if (active) {
-      // Glow halo
-      ctx.shadowColor = drawCol;
-      ctx.shadowBlur  = 18;
-      ctx.strokeStyle = drawCol;
-      ctx.lineWidth   = 3.5;
-      ctx.globalAlpha = 0.95 * pulse;
-      ctx.beginPath(); ctx.arc(s.cx, s.cy, s.r + 9, 0, Math.PI * 2); ctx.stroke();
-      ctx.shadowBlur  = 0;
-      // Second thin outer ring
-      ctx.lineWidth   = 1;
-      ctx.globalAlpha = 0.45 * pulse;
-      ctx.beginPath(); ctx.arc(s.cx, s.cy, s.r + 14, 0, Math.PI * 2); ctx.stroke();
-      // Bottom triangle indicator
-      ctx.globalAlpha = 0.85 * pulse;
-      ctx.fillStyle   = drawCol;
-      const tx = s.cx, ty = s.cy + s.r + 22;
-      ctx.beginPath();
-      ctx.moveTo(tx - 5, ty); ctx.lineTo(tx + 5, ty); ctx.lineTo(tx, ty + 6);
-      ctx.closePath(); ctx.fill();
-    }
-
-    // Slot background — gradient fill for fused
-    ctx.globalAlpha = hasKey ? 0.2 : (active ? 0.12 : 0.07);
-    if (isFused) {
-      const bg = ctx.createLinearGradient(s.cx - s.r, s.cy, s.cx + s.r, s.cy);
-      cols.forEach((c, ci) => bg.addColorStop(ci / Math.max(cols.length - 1, 1), COLOR_HEX[c]));
-      ctx.fillStyle = bg;
+  mochi.lx += (tx - mochi.lx) * 0.18; mochi.ly += (ty - mochi.ly) * 0.18;
+  const lx = mochi.lx * r * 0.14, ly = mochi.ly * r * 0.12;
+  const blink = player.hitFlash > 0 || (t % 3.7) < 0.12;
+  const white = ph ? BG_PH : '#ffffff', pupil = ph ? '#e9fffb' : '#1a1a1a';
+  for (const sx of [-1, 1]) {
+    const ex = sx * r * 0.36 + lx, ey = -r * 0.1 + ly;
+    if (blink) {
+      ctx.strokeStyle = white; ctx.lineWidth = 1.4; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(ex - r * 0.16, ey); ctx.lineTo(ex + r * 0.16, ey); ctx.stroke();
     } else {
-      ctx.fillStyle = drawCol;
+      ctx.fillStyle = white;
+      ctx.beginPath(); ctx.ellipse(ex, ey, r * 0.17, r * 0.23, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = pupil;
+      ctx.beginPath(); ctx.arc(ex + mochi.lx * r * 0.07, ey + mochi.ly * r * 0.09, r * 0.085, 0, TAU); ctx.fill();
     }
-    ctx.beginPath(); ctx.arc(s.cx, s.cy, s.r, 0, Math.PI * 2); ctx.fill();
-
-    // Icon
-    if (hasKey) {
-      if (isFused) {
-        // Colored dots in a ring for each component color
-        const dotR = 5, orbitR = cols.length <= 2 ? 9 : 11;
-        cols.forEach((c, ci) => {
-          const a = (ci / cols.length) * Math.PI * 2 - Math.PI / 2;
-          ctx.globalAlpha = active ? 0.95 * pulse : 0.75;
-          ctx.fillStyle = COLOR_HEX[c];
-          ctx.beginPath(); ctx.arc(s.cx + Math.cos(a) * orbitR, s.cy + Math.sin(a) * orbitR, dotR, 0, Math.PI * 2); ctx.fill();
-          ctx.globalAlpha = active ? 0.4 * pulse : 0.2;
-          ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
-          ctx.stroke();
-        });
-      } else {
-        // Single diamond icon
-        const sz = 9;
-        ctx.globalAlpha = active ? 0.95 * pulse : 0.65;
-        ctx.fillStyle   = primCol;
-        ctx.beginPath();
-        ctx.moveTo(s.cx,             s.cy - sz);
-        ctx.lineTo(s.cx + sz * 0.65, s.cy);
-        ctx.lineTo(s.cx,             s.cy + sz);
-        ctx.lineTo(s.cx - sz * 0.65, s.cy);
-        ctx.closePath(); ctx.fill();
-        ctx.globalAlpha = active ? 0.5 * pulse : 0.25;
-        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
-        ctx.stroke();
-      }
-    } else {
-      ctx.globalAlpha = 0.22;
-      ctx.strokeStyle = drawCol; ctx.lineWidth = 1.2;
-      ctx.beginPath(); ctx.arc(s.cx, s.cy, 7, 0, Math.PI * 2); ctx.stroke();
-    }
-
-    // Durability number
-    if (dur > 0) {
-      ctx.globalAlpha = active ? 0.95 : 0.65;
-      ctx.fillStyle   = dur <= CFG.DUR_COST_NORMAL ? '#ff8888' : '#fff';
-      ctx.font        = `bold ${dur >= 10 ? 9 : 10}px -apple-system, monospace`;
-      ctx.textAlign   = 'center';
-      ctx.fillText(dur, s.cx, s.cy + s.r + 16);
-    }
-
-    ctx.restore();
   }
-}
-
-function renderHUD(w, h) {
-  // HP bar (top center)
-  const barW = Math.min(w * 0.52, 260), barH = 6;
-  const bx = (w - barW) / 2, by = 16;
-  ctx.fillStyle = '#dbd9d2'; roundRect(bx, by, barW, barH, 3);
-  const hudMods = getMods();
-  const maxHp = Math.max(1, CFG.PLAYER_HP_MAX + hudMods.maxHpBonus - hudMods.maxHpMalus);
-  const hpRatio = player.hp / maxHp;
-  const hpCol = hpRatio > 0.5 ? '#3db86a' : hpRatio > 0.25 ? '#ddb830' : '#e8453c';
-  if (barW * hpRatio > 6) { ctx.fillStyle = hpCol; roundRect(bx, by, barW * hpRatio, barH, 3); }
-  ctx.fillStyle = '#888'; ctx.font = '10px -apple-system, monospace'; ctx.textAlign = 'left';
-  ctx.fillText(`HP ${player.hp.toFixed(1)} / ${maxHp.toFixed(1)}`, bx, by + barH + 13);
-
-  ctx.fillStyle = '#999'; ctx.font = 'bold 13px -apple-system, monospace'; ctx.textAlign = 'right';
-  ctx.fillText(`解錠 ${score}`, w - 16, 32);
-  if (highScore > 0) {
-    ctx.fillStyle = '#bbb'; ctx.font = '10px -apple-system, monospace'; ctx.textAlign = 'right';
-    ctx.fillText(`BEST ${highScore}`, w - 16, 46);
-  }
-  ctx.fillStyle = '#bbb'; ctx.font = '11px -apple-system, monospace'; ctx.textAlign = 'left';
-  ctx.fillText(`${Math.floor(gameTime)}s`, 16, 30);
-
-  const alive = enemies.filter(e => e.alive).length;
-  ctx.fillStyle = '#bbb'; ctx.font = '11px -apple-system, monospace'; ctx.textAlign = 'left';
-  ctx.fillText(`敵 ×${alive}`, 16, 44);
-  if (enemyBoostStacks > 0) {
-    ctx.fillStyle = '#ff8844'; ctx.font = 'bold 10px -apple-system, monospace'; ctx.textAlign = 'left';
-    ctx.fillText(`敵増 +${enemyBoostStacks * 7}  頻 ×${Math.pow(1.3, enemyBoostStacks).toFixed(2)}`, 16, 58);
-  }
-
-  // Combo display (top center below HP)
-  if (combo >= 2) {
-    const comboAlpha = Math.min(1, combo / 5);
-    const comboSize  = 11 + Math.min(combo, 20);
-    ctx.save();
-    ctx.globalAlpha = comboAlpha;
-    ctx.font = `bold ${comboSize}px -apple-system, sans-serif`;
-    ctx.textAlign = 'center';
-    const hue = Math.min(60, combo * 4); // yellow at high combos
-    ctx.fillStyle = `hsl(${hue}, 90%, 60%)`;
-    ctx.fillText(`${combo} COMBO`, w / 2, by + barH + 38);
-    ctx.restore();
-  }
-
-  // Inscription count (top-left corner)
-  if (activeInscriptions.length > 0) {
-    ctx.fillStyle = '#b044d8';
-    ctx.font = 'bold 11px -apple-system, monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText(`◆ 刻印 ×${activeInscriptions.length}`, 16, 48);
-  }
-
-  // Pause button
-  {
-    const pb = pauseButtonBounds();
-    ctx.save();
-    ctx.fillStyle = 'rgba(30,28,40,0.6)';
-    ctx.strokeStyle = 'rgba(180,180,200,0.28)';
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.roundRect(pb.x, pb.y, pb.w, pb.h, 6); ctx.fill(); ctx.stroke();
-    // Two vertical bars (pause icon)
-    ctx.fillStyle = 'rgba(200,200,210,0.8)';
-    const bx = pb.x + pb.w / 2, by = pb.y + 7, bh = pb.h - 14;
-    ctx.fillRect(bx - 7, by, 4, bh);
-    ctx.fillRect(bx + 3, by, 4, bh);
-    ctx.restore();
-  }
-
-  ctx.fillStyle = '#aaa'; ctx.font = '11px -apple-system, sans-serif'; ctx.textAlign = 'center';
-  if (state === State.IDLE)
-    ctx.fillText('タップ: 接続/停止  フリック: 移動', w / 2, h - 100);
-  else
-    ctx.fillText('内側起点フリック: 解錠  外側起点フリック: 離脱', w / 2, h - 100);
-}
-
-function renderGameOver(w, h) {
-  const res = lastResult || { score, killCount, maxCombo, gameTime };
-
-  // Dark overlay
-  ctx.fillStyle = 'rgba(8, 8, 12, 0.78)';
-  ctx.fillRect(0, 0, w, h);
-
-  const cx = w / 2;
-  const cy = h / 2;
-
-  // Card background
-  const cardW = Math.min(w - 48, 320), cardH = 310;
-  const cardX = cx - cardW / 2, cardY = cy - cardH / 2;
-  ctx.save();
-  ctx.fillStyle = 'rgba(255,255,255,0.06)';
-  ctx.beginPath();
-  ctx.roundRect(cardX, cardY, cardW, cardH, 14);
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
-  ctx.lineWidth = 1;
-  ctx.stroke();
   ctx.restore();
 
-  // Title
-  ctx.fillStyle = '#e8453c';
-  ctx.font = 'bold 28px -apple-system, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('GAME OVER', cx, cardY + 46);
-
-  // Divider
-  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(cardX + 24, cardY + 58); ctx.lineTo(cardX + cardW - 24, cardY + 58);
-  ctx.stroke();
-
-  // New high score banner
-  const isNewBest = res.killCount >= highScore && res.killCount > 0;
-  if (isNewBest) {
-    ctx.fillStyle = '#ddb830';
-    ctx.font = 'bold 13px -apple-system, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('★ NEW BEST ★', cx, cardY + 66);
+  // 鍵: a satellite held by the player's pull. Simulated in polar form around the player: the radius is
+  // sprung toward a circular orbit, the angular speed relaxes back to a slow lap. Kicks (unlock flicks,
+  // the player's own acceleration) split into radial and sideways parts, so a throw swings out and
+  // whips around instead of bouncing straight through the body.
+  const slot = activeSlot(), hasKey = slot.dur > 0;
+  const keyCol = hasKey ? (COLOR_HEX[slot.colors[0]] || CFG.KEY_COLOR) : '#8c9096';
+  const len = r * 1.25, now = performance.now(), kb = keyBob;
+  const dt = Math.min(3, Math.max(0.25, (now - (kb.lastT || now - 16.7)) / 16.7)); kb.lastT = now;
+  kb.R = r * 2.9;
+  if (!kb.init) { Object.assign(kb, { init: true, rho: kb.R, vr: 0, phi: Math.PI / 2, w: ORBIT_W, pvx: player.vx, pvy: player.vy, ang: Math.PI, av: 0 }); kb.trail.length = 0; }
+  // the player's own acceleration acts on the key as inertia (it lags, then swings)
+  keyKick(-(player.vx - kb.pvx) * 0.7, -(player.vy - kb.pvy) * 0.7);
+  kb.pvx = player.vx; kb.pvy = player.vy;
+  const steps = Math.ceil(dt), hs = dt / steps;
+  for (let i = 0; i < steps; i++) {
+    kb.vr += (-0.04 * (kb.rho - kb.R) - 0.1 * kb.vr) * hs;
+    kb.w += (ORBIT_W - kb.w) * 0.035 * hs;
+    kb.rho += kb.vr * hs;
+    if (kb.rho < r * 1.3) { kb.rho = r * 1.3; if (kb.vr < 0) kb.vr = -kb.vr * 0.4; }
+    if (kb.rho > r * 8) { kb.rho = r * 8; if (kb.vr > 0) kb.vr = 0; }
+    kb.phi += kb.w * hs;
   }
-
-  // Stats
-  const stats = [
-    { label: '生存時間',    value: (() => { const s = Math.floor(res.gameTime); return s >= 60 ? `${Math.floor(s/60)}m ${s%60}s` : `${s}s`; })() },
-    { label: '解錠数',      value: `${res.killCount}`, highlight: isNewBest },
-    { label: 'MAXコンボ',  value: `${res.maxCombo}` },
-    { label: '取得刻印',    value: `${res.inscriptions || 0}個` },
-    { label: 'ハイスコア',  value: `${highScore}`, dim: true },
-  ];
-  const rowH = 42;
-  stats.forEach((s, i) => {
-    const ry = cardY + 88 + i * rowH;
-    ctx.fillStyle = s.dim ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.38)';
-    ctx.font = '12px -apple-system, sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillText(s.label, cardX + 32, ry);
-    ctx.fillStyle = s.highlight ? '#ddb830' : s.dim ? 'rgba(255,255,255,0.45)' : '#ffffff';
-    ctx.font = `bold ${s.dim ? 16 : 22}px -apple-system, monospace`;
-    ctx.textAlign = 'right';
-    ctx.fillText(s.value, cardX + cardW - 32, ry);
-  });
-
-  // Hold-to-restart indicator
-  const holdFrac = gameOverHoldStart > 0
-    ? Math.min(1, (performance.now() - gameOverHoldStart) / GAMEOVER_HOLD_MS)
-    : 0;
-  const hintY = cardY + cardH - 36;
-  // Progress arc
-  if (holdFrac > 0) {
-    ctx.save();
-    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(cx, hintY - 4, 10, -Math.PI / 2, -Math.PI / 2 + holdFrac * Math.PI * 2);
+  kb.x = player.x + Math.cos(kb.phi) * kb.rho; kb.y = player.y + Math.sin(kb.phi) * kb.rho;
+  // velocity relative to the player, for heading
+  kb.vx = Math.cos(kb.phi) * kb.vr - Math.sin(kb.phi) * kb.rho * kb.w;
+  kb.vy = Math.sin(kb.phi) * kb.vr + Math.cos(kb.phi) * kb.rho * kb.w;
+  const kspd = Math.hypot(kb.vx, kb.vy);
+  const heading = kspd > 0.3 ? Math.atan2(kb.vy, kb.vx) : kb.ang;
+  kb.av += angleDiff(heading, kb.ang) * 0.2 * dt;
+  kb.av *= Math.pow(0.75, dt);
+  kb.ang += kb.av * dt;
+  kb.trail.push(kb.x - player.x, kb.y - player.y);       // trail kept relative to the player so the orbit shape reads
+  if (kb.trail.length > 36) kb.trail.splice(0, 2);
+  const kx = kb.x - player.x, ky = kb.y - player.y;
+  if (kb.trail.length >= 6) {
+    ctx.save(); ctx.lineCap = 'round'; ctx.strokeStyle = keyCol;
+    const n = kb.trail.length;
+    for (let i = 2; i < n; i += 2) {
+      const f = i / n;
+      ctx.globalAlpha = 0.5 * f * f; ctx.lineWidth = 0.8 + 2.4 * f;
+      ctx.beginPath(); ctx.moveTo(kb.trail[i - 2], kb.trail[i - 1]); ctx.lineTo(kb.trail[i], kb.trail[i + 1]); ctx.stroke();
+    }
+    ctx.restore();
+  }
+  ctx.save();
+  ctx.translate(kx, ky); ctx.rotate(kb.ang + Math.PI);  // tip leads, bow trails
+  ctx.translate(-len * 0.5, 0);
+  drawHeldKey(len, slot.colors, !hasKey);
+  ctx.restore();
+  ctx.restore();
+}
+const ORBIT_W = 0.021; // rad per frame (~5 s per lap)
+const keyBob = { init: false, x: 0, y: 0, vx: 0, vy: 0, rho: 0, vr: 0, phi: 0, w: 0, R: 0, pvx: 0, pvy: 0, ang: 0, av: 0, lastT: 0, trail: [] };
+// apply a world-space velocity kick to the orbiting key
+function keyKick(ix, iy) {
+  const kb = keyBob;
+  if (!kb.init) return;
+  const ux = Math.cos(kb.phi), uy = Math.sin(kb.phi);
+  kb.vr += ix * ux + iy * uy;
+  kb.w += (-ix * uy + iy * ux) / Math.max(kb.rho, 8);
+}
+// unlock hit: throw the key along the flick; a sideways whip in the orbit direction makes it swing around
+function onKeySwing(angle) {
+  keyKick(Math.cos(angle) * 11, Math.sin(angle) * 11);
+  keyBob.w += 0.09 * Math.sign(keyBob.w || 1);
+}
+function onKeyMiss() { keyKick((Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3); }
+// flat key along +x: bow ring at the origin, shaft, two teeth — outlined in white so it reads on the dark body
+function drawHeldKey(len, colors, dim) {
+  const bowR = len * 0.2, shaftW = len * 0.13, x0 = bowR * 2;
+  let col;
+  if (dim) col = '#8c9096';
+  else if (colors.length > 1) { col = ctx.createLinearGradient(0, 0, len, 0); colors.forEach((c, i) => col.addColorStop(i / (colors.length - 1), COLOR_HEX[c])); }
+  else col = COLOR_HEX[colors[0]];
+  const shape = extra => {
+    ctx.lineWidth = bowR * 0.75 + extra; ctx.beginPath(); ctx.arc(bowR, 0, bowR * 0.75, 0, TAU); ctx.stroke();
+    ctx.lineWidth = shaftW + extra; ctx.beginPath(); ctx.moveTo(x0 - 1, 0); ctx.lineTo(len, 0); ctx.stroke();
+    ctx.lineWidth = shaftW * 0.95 + extra; ctx.beginPath();
+    ctx.moveTo(len - shaftW * 0.5, 0); ctx.lineTo(len - shaftW * 0.5, shaftW * 2.1);
+    ctx.moveTo(len - shaftW * 2.4, 0); ctx.lineTo(len - shaftW * 2.4, shaftW * 1.5);
     ctx.stroke();
-    ctx.restore();
-  }
-  ctx.fillStyle = holdFrac > 0 ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.3)';
-  ctx.font = '12px -apple-system, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('長押しで再スタート', cx, cardY + cardH - 14);
+  };
+  ctx.lineCap = 'butt';
+  ctx.strokeStyle = phantomMode ? BG_PH : '#ffffff'; shape(2.2);
+  ctx.strokeStyle = col; shape(0);
 }
 
-// ══════════════════════════════════════════════
-//  EDGE INDICATORS
-// ══════════════════════════════════════════════
+function orbColor(orb, t) {
+  if (orb.type === 'paint') return `hsl(${Math.round((t * 40) % 360)},85%,58%)`;
+  if (orb.type === 'normal') return RARITY_COLOR[orb.rarity];
+  return { fusion: '#e0b43a', enemy_boost: '#ff5a1f', infection: '#b044d8', phantom: '#2fd8bd' }[orb.type] || '#888';
+}
+function drawOrbGlyph(x, y, orb, t, size, alpha = 1) {
+  const col = orbColor(orb, t);
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  ctx.fillStyle = col;
+  ctx.beginPath(); diamondPath(x, y, size, 0.78); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.font = fnt(Math.round(size * 0.82), 700); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(ORB_CHAR[orb.type] || '刻', x, y + size * 0.06);
+  ctx.textBaseline = 'alphabetic';
+  ctx.restore();
+  return col;
+}
 function renderInscriptionOrbs(t) {
+  const v = visibleWorld(50);
   for (const orb of inscriptionOrbs) {
+    if (orb.x < v.x0 || orb.x > v.x1 || orb.y < v.y0 || orb.y > v.y1) continue;
     const pulse = Math.sin(t * 3.2 + (orb.pulse || 0) * 0.05) * 0.5 + 0.5;
+    const col = orbColor(orb, t);
     ctx.save();
     ctx.translate(orb.x, orb.y);
-
-    if (orb.type === 'infection') {
-      // Pulsing dark-violet corrupted orb
-      const r = 24 + pulse * 6;
-      // Outer glow rings
-      [r + 8, r, r - 8].forEach((rr, i) => {
-        ctx.globalAlpha = (0.12 + pulse * 0.08) / (i + 1);
-        ctx.strokeStyle = '#8800cc'; ctx.lineWidth = 4 - i;
-        ctx.beginPath(); ctx.arc(0, 0, rr, 0, Math.PI * 2); ctx.stroke();
-      });
-      // Spinning dashed ring
-      ctx.setLineDash([5, 3]); ctx.lineDashOffset = t * -60;
-      ctx.globalAlpha = 0.55 + pulse * 0.3;
-      ctx.strokeStyle = '#cc44ff'; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(0, 0, r - 4, 0, Math.PI * 2); ctx.stroke();
-      ctx.setLineDash([]);
-      // Dark corrupted diamond
-      ctx.globalAlpha = 0.9 + pulse * 0.1;
-      ctx.fillStyle = '#2a0044';
-      ctx.strokeStyle = '#bb33ff'; ctx.lineWidth = 1.8;
-      ctx.beginPath();
-      ctx.moveTo(0, -13); ctx.lineTo(10, 0); ctx.lineTo(0, 13); ctx.lineTo(-10, 0);
-      ctx.closePath(); ctx.fill(); ctx.stroke();
-      // Inner glow
-      ctx.globalAlpha = 0.6 + pulse * 0.3;
-      ctx.fillStyle = '#cc44ff';
-      ctx.beginPath();
-      ctx.moveTo(0, -6); ctx.lineTo(4, 0); ctx.lineTo(0, 2); ctx.lineTo(-4, 0);
-      ctx.closePath(); ctx.fill();
-      // "感" kanji hint
-      ctx.globalAlpha = 0.7 + pulse * 0.2;
-      ctx.fillStyle = '#ffccff';
-      ctx.font = 'bold 10px -apple-system, sans-serif';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText('感', 0, 0);
-      ctx.textBaseline = 'alphabetic';
-    } else if (orb.type === 'enemy_boost') {
-      // Angry pulsing red ring + warning diamond
-      const r = 22 + pulse * 5;
-      ctx.globalAlpha = 0.22 + pulse * 0.15;
-      ctx.strokeStyle = '#ff4400'; ctx.lineWidth = 5;
-      ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.stroke();
-      // Dashed faster ring
-      ctx.setLineDash([6, 4]); ctx.lineDashOffset = -t * 40;
-      ctx.globalAlpha = 0.45 + pulse * 0.3;
-      ctx.strokeStyle = '#ff8844'; ctx.lineWidth = 2.5;
-      ctx.beginPath(); ctx.arc(0, 0, r - 6, 0, Math.PI * 2); ctx.stroke();
-      ctx.setLineDash([]);
-      // Dark red diamond
-      ctx.globalAlpha = 0.85 + pulse * 0.15;
-      ctx.fillStyle = '#cc2200';
-      ctx.strokeStyle = '#ff6622'; ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(0, -12); ctx.lineTo(9, 0); ctx.lineTo(0, 12); ctx.lineTo(-9, 0);
-      ctx.closePath(); ctx.fill();
-      ctx.globalAlpha = 0.7 + pulse * 0.2;
-      ctx.stroke();
-      // "+" symbol in center
-      ctx.globalAlpha = 0.9;
-      ctx.fillStyle = '#ffcc88';
-      ctx.font = 'bold 11px -apple-system, monospace';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText('+', 0, 0);
-      ctx.textBaseline = 'alphabetic';
-    } else if (orb.type === 'paint') {
-      // Iridescent paint orb — slowly cycling hue ring + palette diamond
-      const hue = Math.round((t * 40 + (orb.pulse || 0)) % 360);
-      const r2 = 22 + pulse * 5;
-      ctx.globalAlpha = 0.22 + pulse * 0.15;
-      ctx.strokeStyle = `hsl(${hue},90%,65%)`; ctx.lineWidth = 5;
-      ctx.beginPath(); ctx.arc(0, 0, r2, 0, Math.PI * 2); ctx.stroke();
-      ctx.setLineDash([5, 4]); ctx.lineDashOffset = -t * 35;
-      ctx.globalAlpha = 0.50 + pulse * 0.3;
-      ctx.strokeStyle = `hsl(${(hue + 60) % 360},90%,70%)`; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(0, 0, r2 - 6, 0, Math.PI * 2); ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.globalAlpha = 0.85 + pulse * 0.15;
-      ctx.fillStyle = `hsl(${(hue + 120) % 360},80%,40%)`;
-      ctx.strokeStyle = `hsl(${hue},90%,70%)`; ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(0, -12); ctx.lineTo(9, 0); ctx.lineTo(0, 12); ctx.lineTo(-9, 0);
-      ctx.closePath(); ctx.fill(); ctx.stroke();
-      ctx.globalAlpha = 0.9;
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold 9px -apple-system, monospace';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText('彩', 0, 0);
-      ctx.textBaseline = 'alphabetic';
-    } else if (orb.type === 'phantom') {
-      // Ethereal cyan phantom orb
-      const r = 22 + pulse * 6;
-      [r + 10, r, r - 8].forEach((rr, i) => {
-        ctx.globalAlpha = (0.10 + pulse * 0.08) / (i + 1);
-        ctx.strokeStyle = '#44ffdd'; ctx.lineWidth = 3.5 - i;
-        ctx.beginPath(); ctx.arc(0, 0, rr, 0, Math.PI * 2); ctx.stroke();
-      });
-      ctx.setLineDash([5, 3]); ctx.lineDashOffset = t * 55;
-      ctx.globalAlpha = 0.55 + pulse * 0.3;
-      ctx.strokeStyle = '#aaffee'; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(0, 0, r - 5, 0, Math.PI * 2); ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.globalAlpha = 0.88 + pulse * 0.12;
-      ctx.fillStyle = '#004433';
-      ctx.strokeStyle = '#44ffdd'; ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(0, -13); ctx.lineTo(10, 0); ctx.lineTo(0, 13); ctx.lineTo(-10, 0);
-      ctx.closePath(); ctx.fill(); ctx.stroke();
-      ctx.globalAlpha = 0.9;
-      ctx.fillStyle = '#88ffdd';
-      ctx.font = 'bold 9px -apple-system, monospace';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText('幻', 0, 0);
-      ctx.textBaseline = 'alphabetic';
-    } else if (orb.type === 'fusion') {
-      // Multi-color spinning ring segments
-      const segColors = ['#e8453c', '#3c7de8', '#ddb830', '#3db86a', '#9844e8'];
-      const numSeg = 5;
-      const segAngle = Math.PI * 2 / numSeg;
-      ctx.lineWidth = 4;
-      for (let i = 0; i < numSeg; i++) {
-        ctx.globalAlpha = 0.5 + pulse * 0.4;
-        ctx.strokeStyle = segColors[i];
-        ctx.beginPath();
-        ctx.arc(0, 0, 22 + pulse * 5, i * segAngle + t * 1.1, (i + 0.75) * segAngle + t * 1.1);
-        ctx.stroke();
+    ctx.strokeStyle = col; ctx.lineWidth = 1.2;
+    if (orb.type === 'fusion') {
+      for (let i = 0; i < 5; i++) {
+        ctx.strokeStyle = COLOR_HEX[COLORS[i]]; ctx.lineWidth = 2; ctx.globalAlpha = 0.85;
+        ctx.beginPath(); ctx.arc(0, 0, 22, i * TAU / 5 + t * 1.1, (i + 0.72) * TAU / 5 + t * 1.1); ctx.stroke();
       }
-      // Gold diamond
-      ctx.globalAlpha = 0.8 + pulse * 0.2;
-      ctx.fillStyle = '#ffcc44';
-      ctx.beginPath();
-      ctx.moveTo(0, -12); ctx.lineTo(9, 0); ctx.lineTo(0, 12); ctx.lineTo(-9, 0);
-      ctx.closePath(); ctx.fill();
-      // White inner
-      ctx.globalAlpha = 0.55;
-      ctx.fillStyle = '#fff';
-      ctx.beginPath();
-      ctx.moveTo(0, -6); ctx.lineTo(4, 0); ctx.lineTo(0, 2); ctx.lineTo(-4, 0);
-      ctx.closePath(); ctx.fill();
     } else {
-      const col = RARITY_COLOR[orb.rarity];
-      // Glow ring
-      ctx.globalAlpha = 0.18 + pulse * 0.14;
-      ctx.strokeStyle = col; ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.arc(0, 0, 22 + pulse * 4, 0, Math.PI * 2); ctx.stroke();
-      // Core diamond
-      ctx.globalAlpha = 0.7 + pulse * 0.3;
-      ctx.fillStyle   = col;
-      ctx.beginPath();
-      ctx.moveTo(0, -10); ctx.lineTo(7, 0); ctx.lineTo(0, 10); ctx.lineTo(-7, 0);
-      ctx.closePath(); ctx.fill();
-      // White inner highlight
-      ctx.globalAlpha = 0.5;
-      ctx.fillStyle   = '#fff';
-      ctx.beginPath();
-      ctx.moveTo(0, -5); ctx.lineTo(3, 0); ctx.lineTo(0, 1); ctx.lineTo(-3, 0);
-      ctx.closePath(); ctx.fill();
-    }
-
-    ctx.restore();
-  }
-}
-
-function renderInscriptionEdgeIndicators() {
-  const margin = 54;
-  const t = performance.now() / 1000;
-  for (const orb of inscriptionOrbs) {
-    const angle = Math.atan2(orb.y - player.y, orb.x - player.x);
-    const d     = Math.hypot(orb.x - player.x, orb.y - player.y);
-    if (d < 350) continue;
-    const { x, y } = screenEdgePoint(angle, margin);
-    const isFusion     = orb.type === 'fusion';
-    const isEnemyBoost = orb.type === 'enemy_boost';
-    const isInfection  = orb.type === 'infection';
-    const isPhantom    = orb.type === 'phantom';
-    const isPaint      = orb.type === 'paint';
-    const paintEdgeCol = isPaint ? `hsl(${Math.round((performance.now() / 1000 * 40) % 360)},90%,65%)` : '#fff';
-    const col = isInfection ? '#cc44ff' : isEnemyBoost ? '#ff4400' : isFusion ? '#ffcc44' : isPhantom ? '#44ffdd' : isPaint ? paintEdgeCol : RARITY_COLOR[orb.rarity];
-    const pulse     = 0.72 + 0.28 * Math.sin(t * 3.8 + (orb.pulse || 0) * 0.05);
-
-    ctx.save();
-    ctx.translate(x, y);
-
-    // Pill badge background — completely different shape from triangular enemy arrows
-    ctx.globalAlpha = 0.82;
-    ctx.fillStyle = 'rgba(10,8,20,0.88)';
-    ctx.strokeStyle = col;
-    ctx.lineWidth = 1.8;
-    ctx.beginPath(); ctx.roundRect(-22, -17, 44, 34, 8); ctx.fill();
-    ctx.globalAlpha = 0.55 * pulse;
-    ctx.stroke();
-
-    // Upright diamond (not rotated with angle — clearly differs from enemy triangles)
-    ctx.globalAlpha = pulse;
-    ctx.fillStyle = col;
-    ctx.beginPath();
-    ctx.moveTo(0, -9); ctx.lineTo(7, 0); ctx.lineTo(0, 9); ctx.lineTo(-7, 0);
-    ctx.closePath(); ctx.fill();
-    ctx.globalAlpha = 0.6;
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.moveTo(0, -4); ctx.lineTo(3, 0); ctx.lineTo(0, 1); ctx.lineTo(-3, 0);
-    ctx.closePath(); ctx.fill();
-
-    // Text label below diamond
-    ctx.globalAlpha = 0.95 * pulse;
-    ctx.fillStyle = col;
-    ctx.font = `bold 8px -apple-system, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.fillText(isInfection ? '感染' : isEnemyBoost ? '敵増' : isFusion ? '融合' : isPhantom ? '幻影' : '刻印', 0, 22);
-
-    // Small direction tick pointing toward orb (outside the badge)
-    ctx.globalAlpha = 0.65 * pulse;
-    ctx.strokeStyle = col;
-    ctx.lineWidth = 2;
-    const ax = Math.cos(angle), ay = Math.sin(angle);
-    ctx.beginPath();
-    ctx.moveTo(ax * 24, ay * 24);
-    ctx.lineTo(ax * 30, ay * 30);
-    ctx.stroke();
-    ctx.save();
-    ctx.translate(ax * 30, ay * 30);
-    ctx.rotate(angle);
-    ctx.fillStyle = col;
-    ctx.beginPath();
-    ctx.moveTo(4, 0); ctx.lineTo(-2, -3); ctx.lineTo(-2, 3);
-    ctx.closePath(); ctx.fill();
-    ctx.restore();
-
-    ctx.restore();
-  }
-}
-
-function renderDraft(w, h, t) {
-  if (draftIsFusion) { renderFusionDraft(w, h, t); return; }
-  if (infectedMode && draftChoices.length > 0 && Array.isArray(draftChoices[0])) {
-    renderInfectedDraft(w, h, t); return;
-  }
-
-  // Dim overlay
-  ctx.fillStyle = 'rgba(8, 8, 14, 0.72)';
-  ctx.fillRect(0, 0, w, h);
-
-  // Title
-  ctx.fillStyle = '#e0d0ff';
-  ctx.font = 'bold 20px -apple-system, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('刻印を選択', w / 2, h / 2 - 180);
-
-  const bounds = draftCardBounds(w, h);
-  const cardBounds = bounds.slice(0, 3);
-  const skipBound  = bounds[3];
-
-  // Draw inscription cards
-  cardBounds.forEach((b, i) => {
-    if (i >= draftChoices.length) return;
-    const ins   = draftChoices[i];
-    const rcol  = RARITY_COLOR[ins.rarity];
-
-    // Card bg
-    ctx.fillStyle   = 'rgba(255,255,255,0.07)';
-    ctx.strokeStyle = rcol;
-    ctx.lineWidth   = 1.5;
-    ctx.save();
-    ctx.beginPath();
-    ctx.roundRect(b.x, b.y, b.w, b.h, 10);
-    ctx.fill(); ctx.stroke();
-    ctx.restore();
-
-    // Rarity label
-    ctx.fillStyle = rcol;
-    ctx.font = 'bold 11px -apple-system, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(ins.rarity.toUpperCase(), b.x + b.w / 2, b.y + 20);
-
-    // Diamond icon
-    const cx = b.x + b.w / 2, dy = b.y + 50;
-    ctx.fillStyle = rcol;
-    ctx.beginPath();
-    ctx.moveTo(cx, dy - 14); ctx.lineTo(cx + 10, dy); ctx.lineTo(cx, dy + 14); ctx.lineTo(cx - 10, dy);
-    ctx.closePath(); ctx.fill();
-
-    // Buff section
-    ctx.fillStyle = 'rgba(100,255,120,0.9)';
-    ctx.font = 'bold 11px -apple-system, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('▲ バフ', b.x + b.w / 2, b.y + 92);
-
-    ctx.fillStyle = '#ddffd0';
-    ctx.font = '11px -apple-system, sans-serif';
-    wrapText(ctx, ins.buff.label, b.x + b.w / 2, b.y + 112, b.w - 20, 15);
-
-    // Debuff section
-    ctx.fillStyle = 'rgba(255,100,100,0.9)';
-    ctx.font = 'bold 11px -apple-system, sans-serif';
-    ctx.fillText('▼ デバフ', b.x + b.w / 2, b.y + 170);
-
-    ctx.fillStyle = '#ffd0d0';
-    ctx.font = '11px -apple-system, sans-serif';
-    wrapText(ctx, ins.debuff.label, b.x + b.w / 2, b.y + 190, b.w - 20, 15);
-
-    // Tap hint
-    ctx.fillStyle = 'rgba(255,255,255,0.25)';
-    ctx.font = '10px -apple-system, sans-serif';
-    ctx.fillText('タップで取得', b.x + b.w / 2, b.y + b.h - 12);
-  });
-
-  // Skip button
-  ctx.fillStyle   = 'rgba(255,255,255,0.08)';
-  ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-  ctx.lineWidth   = 1;
-  ctx.save();
-  ctx.beginPath();
-  ctx.roundRect(skipBound.x, skipBound.y, skipBound.w, skipBound.h, 8);
-  ctx.fill(); ctx.stroke();
-  ctx.restore();
-
-  ctx.fillStyle = 'rgba(255,255,255,0.65)';
-  ctx.font = '13px -apple-system, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('見送る（最少耐久の鍵を補充）', skipBound.x + skipBound.w / 2, skipBound.y + skipBound.h / 2 + 4);
-
-  // Active inscriptions count
-  if (activeInscriptions.length > 0) {
-    ctx.fillStyle = 'rgba(255,255,255,0.3)';
-    ctx.font = '11px -apple-system, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(`刻印 ${activeInscriptions.length}個 取得済み`, w / 2, h - 40);
-  }
-}
-
-function renderInfectedDraft(w, h, t) {
-  // Dark violet overlay
-  ctx.fillStyle = 'rgba(10, 0, 22, 0.82)';
-  ctx.fillRect(0, 0, w, h);
-
-  // Title
-  ctx.fillStyle = '#cc44ff';
-  ctx.font = 'bold 18px -apple-system, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('刻印感染 — 5刻印を選択', w / 2, h / 2 - 195);
-
-  const bounds = draftCardBounds(w, h);
-  const cardBounds = bounds.slice(0, 3);
-  const skipBound  = bounds[3];
-
-  cardBounds.forEach((b, i) => {
-    if (i >= draftChoices.length) return;
-    const bundle = draftChoices[i]; // array of 5 inscriptions
-
-    // Card bg — taller to fit 5 items; reuse bound but clip internally
-    ctx.fillStyle   = 'rgba(40,0,60,0.55)';
-    ctx.strokeStyle = '#9922cc';
-    ctx.lineWidth   = 1.5;
-    ctx.save();
-    ctx.beginPath();
-    ctx.roundRect(b.x, b.y, b.w, b.h, 10);
-    ctx.fill(); ctx.stroke();
-    ctx.restore();
-
-    // Infected badge
-    ctx.fillStyle = '#cc44ff';
-    ctx.font = 'bold 10px -apple-system, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('感染 ×5', b.x + b.w / 2, b.y + 16);
-
-    // List the 5 inscriptions compactly
-    const lineH = (b.h - 40) / 5;
-    bundle.forEach((ins, j) => {
-      const ry = b.y + 28 + j * lineH;
-      const rcol = RARITY_COLOR[ins.rarity];
-
-      // Rarity dot
-      ctx.fillStyle = rcol;
-      ctx.beginPath();
-      ctx.arc(b.x + 8, ry + lineH / 2 - 2, 3, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Buff
-      ctx.fillStyle = '#aaffaa';
-      ctx.font = '9px -apple-system, sans-serif';
-      ctx.textAlign = 'left';
-      ctx.fillText(`▲ ${ins.buff.label}`, b.x + 16, ry + lineH / 2 - 3);
-
-      // Debuff
-      ctx.fillStyle = '#ffaaaa';
-      ctx.fillText(`▼ ${ins.debuff.label}`, b.x + 16, ry + lineH / 2 + 9);
-
-      // Divider (except after last)
-      if (j < bundle.length - 1) {
-        ctx.strokeStyle = 'rgba(150,50,200,0.3)';
-        ctx.lineWidth = 0.5;
-        ctx.beginPath();
-        ctx.moveTo(b.x + 6, ry + lineH);
-        ctx.lineTo(b.x + b.w - 6, ry + lineH);
-        ctx.stroke();
-      }
-    });
-
-    // Tap hint
-    ctx.fillStyle = 'rgba(255,255,255,0.22)';
-    ctx.font = '9px -apple-system, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('タップで取得', b.x + b.w / 2, b.y + b.h - 6);
-  });
-
-  // Skip button
-  ctx.fillStyle   = 'rgba(255,255,255,0.06)';
-  ctx.strokeStyle = 'rgba(200,100,255,0.3)';
-  ctx.lineWidth   = 1;
-  ctx.save();
-  ctx.beginPath();
-  ctx.roundRect(skipBound.x, skipBound.y, skipBound.w, skipBound.h, 8);
-  ctx.fill(); ctx.stroke();
-  ctx.restore();
-  ctx.fillStyle = 'rgba(255,255,255,0.55)';
-  ctx.font = '13px -apple-system, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('見送る（最少耐久の鍵を補充）', skipBound.x + skipBound.w / 2, skipBound.y + skipBound.h / 2 + 4);
-
-  if (activeInscriptions.length > 0) {
-    ctx.fillStyle = 'rgba(200,100,255,0.35)';
-    ctx.font = '11px -apple-system, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(`刻印 ${activeInscriptions.length}個 取得済み`, w / 2, h - 40);
-  }
-}
-
-function renderFusionDraft(w, h, t) {
-  // Overlay with warm gold tint
-  ctx.fillStyle = 'rgba(8, 7, 14, 0.80)';
-  ctx.fillRect(0, 0, w, h);
-
-  // Gold frame accent
-  ctx.strokeStyle = 'rgba(255,200,60,0.18)';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(10, 10, w - 20, h - 20);
-
-  // Title
-  ctx.fillStyle = '#ffcc44';
-  ctx.font = 'bold 22px -apple-system, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('色融合刻印', w / 2, h / 2 - 185);
-
-  ctx.fillStyle = 'rgba(255,200,60,0.55)';
-  ctx.font = '12px -apple-system, sans-serif';
-  ctx.fillText('デバフなし — 複数の色の力を融合強化', w / 2, h / 2 - 162);
-
-  const bounds    = draftCardBounds(w, h);
-  const cardBounds = bounds.slice(0, 3);
-  const skipBound  = bounds[3];
-
-  cardBounds.forEach((b, i) => {
-    if (i >= draftChoices.length) return;
-    const ins = draftChoices[i];
-
-    // Card bg with gold border
-    ctx.fillStyle   = 'rgba(255,200,60,0.07)';
-    ctx.strokeStyle = 'rgba(255,200,60,0.55)';
-    ctx.lineWidth   = 1.5;
-    ctx.save();
-    ctx.beginPath(); ctx.roundRect(b.x, b.y, b.w, b.h, 10); ctx.fill(); ctx.stroke();
-    ctx.restore();
-
-    // Color count label
-    ctx.fillStyle = '#ffcc44';
-    ctx.font = 'bold 11px -apple-system, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(`${ins.colors.length}色融合`, b.x + b.w / 2, b.y + 20);
-
-    // Color swatches
-    const swatchR  = 9;
-    const swatchY  = b.y + 48;
-    const sw       = ins.colors.length;
-    const swSpacing = Math.min(22, (b.w - 20) / Math.max(sw, 1));
-    ins.colors.forEach((c, ci) => {
-      const sx = b.x + b.w / 2 + (ci - (sw - 1) / 2) * swSpacing;
-      ctx.fillStyle = COLOR_HEX[c];
-      ctx.beginPath(); ctx.arc(sx, swatchY, swatchR, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,0.55)';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-    });
-
-    // Effects list
-    ins.effects.forEach((eff, ei) => {
-      const ey = b.y + 78 + ei * 28;
-      ctx.fillStyle = COLOR_HEX[ins.colors[ei]];
-      ctx.font = 'bold 10px -apple-system, sans-serif';
-      ctx.textAlign = 'left';
-      ctx.fillText('▲', b.x + 10, ey);
-      ctx.fillStyle = '#fff';
-      ctx.font = '11px -apple-system, sans-serif';
-      ctx.textAlign = 'center';
-      wrapText(ctx, eff.label, b.x + b.w / 2, ey, b.w - 22, 14);
-    });
-
-    // Tap hint
-    ctx.fillStyle = 'rgba(255,200,60,0.45)';
-    ctx.font = '10px -apple-system, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('タップで取得', b.x + b.w / 2, b.y + b.h - 12);
-  });
-
-  // Skip button
-  ctx.fillStyle   = 'rgba(255,255,255,0.07)';
-  ctx.strokeStyle = 'rgba(255,255,255,0.22)';
-  ctx.lineWidth   = 1;
-  ctx.save();
-  ctx.beginPath(); ctx.roundRect(skipBound.x, skipBound.y, skipBound.w, skipBound.h, 8);
-  ctx.fill(); ctx.stroke();
-  ctx.restore();
-  ctx.fillStyle = 'rgba(255,255,255,0.6)';
-  ctx.font = '13px -apple-system, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('見送る（最少耐久の鍵を補充）', skipBound.x + skipBound.w / 2, skipBound.y + skipBound.h / 2 + 4);
-
-  if (activeInscriptions.length > 0) {
-    ctx.fillStyle = 'rgba(255,255,255,0.28)';
-    ctx.font = '11px -apple-system, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(`刻印 ${activeInscriptions.length}個 取得済み`, w / 2, h - 40);
-  }
-}
-
-function renderFusionSelect(w, h, t) {
-  ctx.fillStyle = 'rgba(8,7,18,0.68)';
-  ctx.fillRect(0, 0, w, h);
-
-  const cx = w / 2;
-  const nameMap = { red:'赤', blue:'青', yellow:'黄', green:'緑', purple:'紫' };
-
-  // Header panel
-  ctx.fillStyle   = 'rgba(255,200,60,0.12)';
-  ctx.strokeStyle = 'rgba(255,200,60,0.45)';
-  ctx.lineWidth   = 1.5;
-  ctx.save();
-  ctx.beginPath(); ctx.roundRect(cx - 190, 48, 380, 86, 12); ctx.fill(); ctx.stroke();
-  ctx.restore();
-  ctx.fillStyle = '#ffcc44';
-  ctx.font = 'bold 18px -apple-system, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('色融合刻印', cx, 78);
-
-  if (fusionSlotB !== -1) {
-    // ── Confirmation stage ──
-    const sA = keySlots[fusionSlotA];
-    const sB = keySlots[fusionSlotB];
-    const mergedColors = sA && sB ? [...new Set([...sA.colors, ...sB.colors])] : [];
-    const labelA = sA ? sA.colors.map(c => nameMap[c] || c).join('+') : '?';
-    const labelB = sB ? sB.colors.map(c => nameMap[c] || c).join('+') : '?';
-    const labelM = mergedColors.map(c => nameMap[c] || c).join('+');
-
-    ctx.font = '13px -apple-system, sans-serif';
-    ctx.fillStyle = '#ffcc44';
-    ctx.fillText('融合内容を確認', cx, 103);
-    ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    ctx.font = '11px -apple-system, sans-serif';
-    ctx.fillText(`「${labelA}」＋「${labelB}」 → 「${labelM}」`, cx, 122);
-
-    // Preview card
-    const cardW = 280, cardH = 90, cardY = h / 2 - 60;
-    ctx.fillStyle = 'rgba(255,200,60,0.08)';
-    ctx.strokeStyle = 'rgba(255,200,60,0.38)';
-    ctx.lineWidth = 1.5;
-    ctx.save();
-    ctx.beginPath(); ctx.roundRect(cx - cardW / 2, cardY, cardW, cardH, 10); ctx.fill(); ctx.stroke();
-    ctx.restore();
-    const dotR = 14;
-    const spacing = Math.min(52, (cardW - 40) / Math.max(mergedColors.length, 1));
-    const startDotX = cx - spacing * (mergedColors.length - 1) / 2;
-    mergedColors.forEach((col, ci) => {
-      const dx = startDotX + ci * spacing;
-      const dy = cardY + cardH / 2;
-      ctx.globalAlpha = 0.9;
-      ctx.fillStyle = COLOR_HEX[col];
-      ctx.beginPath(); ctx.arc(dx, dy, dotR, 0, Math.PI * 2); ctx.fill();
-      ctx.globalAlpha = 0.4;
-      ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(dx, dy, dotR, 0, Math.PI * 2); ctx.stroke();
-      ctx.globalAlpha = 1;
-      ctx.font = 'bold 10px -apple-system, sans-serif';
-      ctx.fillStyle = '#ccc'; ctx.textAlign = 'center';
-      ctx.fillText(nameMap[col] || col, dx, dy + dotR + 13);
-    });
-
-    // Confirm / Cancel buttons
-    const btn = fusionConfirmBounds(w, h);
-    ctx.fillStyle = 'rgba(80,200,100,0.18)';
-    ctx.strokeStyle = 'rgba(80,200,100,0.65)';
-    ctx.lineWidth = 1.5;
-    ctx.save();
-    ctx.beginPath(); ctx.roundRect(btn.confirm.x, btn.confirm.y, btn.confirm.w, btn.confirm.h, 9); ctx.fill(); ctx.stroke();
-    ctx.restore();
-    ctx.fillStyle = '#7de899';
-    ctx.font = 'bold 15px -apple-system, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('融合する', btn.confirm.x + btn.confirm.w / 2, btn.confirm.y + 30);
-
-    ctx.fillStyle = 'rgba(255,255,255,0.07)';
-    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
-    ctx.lineWidth = 1;
-    ctx.save();
-    ctx.beginPath(); ctx.roundRect(btn.cancel.x, btn.cancel.y, btn.cancel.w, btn.cancel.h, 9); ctx.fill(); ctx.stroke();
-    ctx.restore();
-    ctx.fillStyle = 'rgba(255,255,255,0.65)';
-    ctx.font = '14px -apple-system, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('キャンセル', btn.cancel.x + btn.cancel.w / 2, btn.cancel.y + 28);
-
-    // Pulse highlights on both chosen slots
-    const fslots = keyPanelSlots();
-    [fusionSlotA, fusionSlotB].forEach((idx, ii) => {
-      const s = fslots.find(fs => fs.idx === idx);
-      if (!s) return;
-      const pulse = 0.75 + 0.25 * Math.sin(t * 5 + ii * Math.PI);
-      ctx.strokeStyle = ii === 0 ? '#ffcc44' : '#7de899';
-      ctx.lineWidth = 3; ctx.globalAlpha = pulse;
-      ctx.beginPath(); ctx.arc(s.cx, s.cy, s.r + 14, 0, Math.PI * 2); ctx.stroke();
-      ctx.globalAlpha = 1;
-    });
-  } else {
-    // ── Selection stage ──
-    ctx.font = '13px -apple-system, sans-serif';
-    if (fusionSlotA === -1) {
-      ctx.fillStyle = 'rgba(255,255,255,0.85)';
-      ctx.fillText('融合させたい1つ目の鍵をタップ', cx, 103);
-    } else {
-      const sA = keySlots[fusionSlotA];
-      const label = sA ? sA.colors.map(c => nameMap[c] || c).join('+') : '?';
-      ctx.fillStyle = '#ffcc44';
-      ctx.fillText(`「${label}」選択中  →  融合する2つ目をタップ`, cx, 103);
-    }
-
-    // Pulsing highlight on selected slot A
-    if (fusionSlotA !== -1) {
-      const fslots = keyPanelSlots();
-      const sA = fslots.find(s => s.idx === fusionSlotA);
-      if (sA) {
-        const pulse = 0.75 + 0.25 * Math.sin(t * 5);
-        ctx.strokeStyle = '#ffcc44';
-        ctx.lineWidth   = 3;
-        ctx.globalAlpha = pulse;
-        ctx.beginPath(); ctx.arc(sA.cx, sA.cy, sA.r + 14, 0, Math.PI * 2); ctx.stroke();
-        ctx.globalAlpha = 0.5 * pulse;
-        ctx.beginPath(); ctx.arc(sA.cx, sA.cy, sA.r + 20, 0, Math.PI * 2); ctx.stroke();
-        ctx.globalAlpha = 1;
+      ctx.globalAlpha = 0.35 + pulse * 0.4;
+      ctx.beginPath(); ctx.arc(0, 0, 20 + pulse * 4, 0, TAU); ctx.stroke();
+      if (orb.type !== 'normal') {
+        ctx.globalAlpha = 0.7; ctx.setLineDash([3, 4]); ctx.lineDashOffset = -t * 30;
+        ctx.beginPath(); ctx.arc(0, 0, 26, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
       }
     }
+    ctx.globalAlpha = 1;
+    drawOrbGlyph(0, 0, orb, t, orb.type === 'normal' ? 11 : 12.5);
+    ctx.restore();
   }
 }
 
-function renderPause(w, h) {
-  // Dark frosted overlay
-  ctx.fillStyle = 'rgba(14, 12, 24, 0.78)';
+// ══════════════════════════════════════════════
+//  FRAME
+// ══════════════════════════════════════════════
+function render() {
+  const w = W(), h = H(), t = performance.now() / 1000;
+  RM = getMods();
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = phantomMode ? BG_PH : BG;
   ctx.fillRect(0, 0, w, h);
 
-  const cx = w / 2, cy = h / 2;
-  const cardW = Math.min(w - 48, 300), cardH = 420;
-  const cardX = cx - cardW / 2, cardY = cy - cardH / 2;
-
-  // Card
-  ctx.fillStyle = 'rgba(255,255,255,0.07)';
-  ctx.strokeStyle = 'rgba(255,255,255,0.14)';
-  ctx.lineWidth = 1;
   ctx.save();
-  ctx.beginPath(); ctx.roundRect(cardX, cardY, cardW, cardH, 14); ctx.fill(); ctx.stroke();
-  ctx.restore();
-
-  // Title
-  ctx.fillStyle = '#d8d6e8';
-  ctx.font = 'bold 26px -apple-system, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('PAUSE', cx, cardY + 50);
-
-  // Divider
-  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(cardX + 24, cardY + 62); ctx.lineTo(cardX + cardW - 24, cardY + 62);
-  ctx.stroke();
-
-  // Resume button
-  const resumeY = cardY + 82;
-  ctx.fillStyle   = 'rgba(80,200,100,0.14)';
-  ctx.strokeStyle = 'rgba(80,200,100,0.55)';
-  ctx.lineWidth   = 1.5;
-  ctx.save();
-  ctx.beginPath(); ctx.roundRect(cx - 90, resumeY, 180, 48, 9); ctx.fill(); ctx.stroke();
-  ctx.restore();
-  ctx.fillStyle = '#7de899';
-  ctx.font = 'bold 16px -apple-system, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('再開', cx, resumeY + 30);
-
-  // Reset button
-  const resetY = cardY + 146;
-  ctx.fillStyle   = 'rgba(200,70,70,0.12)';
-  ctx.strokeStyle = 'rgba(200,70,70,0.42)';
-  ctx.lineWidth   = 1.5;
-  ctx.save();
-  ctx.beginPath(); ctx.roundRect(cx - 90, resetY, 180, 48, 9); ctx.fill(); ctx.stroke();
-  ctx.restore();
-  ctx.fillStyle = '#e07878';
-  ctx.font = 'bold 16px -apple-system, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('リセット', cx, resetY + 30);
-
-  // Divider before how-to
-  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(cardX + 24, cardY + 212); ctx.lineTo(cardX + cardW - 24, cardY + 212);
-  ctx.stroke();
-
-  // How-to section
-  ctx.fillStyle = 'rgba(200,195,230,0.55)';
-  ctx.font = 'bold 11px -apple-system, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('操作説明', cx, cardY + 230);
-
-  const tips = [
-    ['フリック', '移動'],
-    ['敵をタップ', '解錠モード'],
-    ['円外フリック', '緊急離脱'],
-    ['下部タップ', '鍵を選択'],
-    ['同色の鍵', 'クリティカルヒット'],
-  ];
-  const labelX = cardX + 20;
-  const valX   = cardX + cardW - 20;
-  let tipY = cardY + 252;
-  ctx.font = '13px -apple-system, sans-serif';
-  for (const [label, desc] of tips) {
-    ctx.fillStyle = '#b8b4d4';
-    ctx.textAlign = 'left';
-    ctx.fillText(label, labelX, tipY);
-    ctx.fillStyle = 'rgba(200,195,230,0.6)';
-    ctx.textAlign = 'right';
-    ctx.fillText(desc, valX, tipY);
-    tipY += 26;
+  const scale = viewScale();
+  if (scale !== 1) { ctx.translate(w / 2, h / 2); ctx.scale(scale, scale); ctx.translate(-w / 2, -h / 2); }
+  ctx.translate(-cam.x, -cam.y);
+  drawGrid();
+  renderEffectsWorld(t);
+  renderKeyDrops(t);
+  renderInscriptionOrbs(t);
+  if (state === State.CONNECTED && connectedEnemy) renderBeam(t);
+  const v = visibleWorld(210);
+  for (const e of enemies) {
+    if (!e.alive || e.x < v.x0 || e.x > v.x1 || e.y < v.y0 || e.y > v.y1) continue;
+    renderEnemy(e, t);
   }
+  renderPlayer(t);
+  ctx.restore();
+
+  if (activePaints.length > 0 && !phantomMode) renderPaintLayers(t);
+  if (phantomMode) {
+    ctx.save(); ctx.globalAlpha = 0.18;
+    ctx.fillStyle = `hsl(${Math.round((t * 25) % 360)}, 85%, 55%)`;
+    ctx.fillRect(0, 0, w, h); ctx.restore();
+  }
+  if (screenFlash) {
+    ctx.fillStyle = `rgba(${screenFlash.r},${screenFlash.g},${screenFlash.b},${screenFlash.alpha})`;
+    ctx.fillRect(0, 0, w, h);
+  }
+  if (state === State.TITLE) { renderTitle(w, h, t); return; }
+  renderSwipeTrail();
+  renderEdgeIndicators();
+  renderInscriptionEdgeIndicators(t);
+  if (state === State.CONNECTED) renderCircularUI(t);
+  renderHoldRing();
+  renderFieldNotes(t);
+  renderKeyPanel(t);
+  renderHUD(w, h, t);
+  renderHint(t);
+  if (orbAnnounce) renderOrbAnnounce(w, h, t);
+  if (state === State.GAMEOVER)      renderGameOver(w, h, t);
+  if (state === State.DRAFT)         renderDraft(w, h, t);
+  if (state === State.PAUSED)        renderPause(w, h, t);
+  if (state === State.FUSION_SELECT) renderFusionSelect(w, h, t);
+  if (state === State.PAINT_DRAFT)   renderPaintDraft(w, h, t);
 }
 
-function wrapText(ctx, text, cx, y, maxW, lineH) {
-  const words = text.split('');
-  let line = '';
-  for (const ch of words) {
-    const test = line + ch;
-    if (ctx.measureText(test).width > maxW && line !== '') {
-      ctx.fillText(line, cx, y); y += lineH; line = ch;
-    } else { line = test; }
-  }
-  ctx.fillText(line, cx, y);
-}
-
+// ══════════════════════════════════════════════
+//  INDICATORS
+// ══════════════════════════════════════════════
 function renderEdgeIndicators() {
-  const margin = 22; // distance inset from screen edge
+  const margin = 20, sz = 7, v = visibleWorld(-6), byCol = new Map();
   for (const e of enemies) {
     if (!e.alive) continue;
-    const angle = Math.atan2(e.y - player.y, e.x - player.x);
-    const { x, y } = screenEdgePoint(angle, margin);
-    const sz = 7; // arrow half-size
-
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(angle);
-
-    // Drop shadow
-    ctx.shadowColor = 'rgba(0,0,0,0.18)';
-    ctx.shadowBlur  = 4;
-
-    // Fill: enemy color (gray if D-V4 active), opacity by hp remaining
-    const edgeMods = getMods();
-    const edgeCol  = edgeMods.enemyColorFarHide > 0 ? '#888' : (COLOR_HEX[e.color] || CFG.KEY_COLOR);
-    ctx.globalAlpha = 0.55 + (e.hp / e.maxHp) * 0.35;
-    ctx.fillStyle   = edgeCol;
-    ctx.beginPath();
-    ctx.moveTo( sz,       0);
-    ctx.lineTo(-sz * 0.6, -sz * 0.65);
-    ctx.lineTo(-sz * 0.6,  sz * 0.65);
-    ctx.closePath();
+    if (e.x > v.x0 && e.x < v.x1 && e.y > v.y0 && e.y < v.y1) continue;
+    const col = RM.enemyColorFarHide > 0 ? '#8c9096' : (COLOR_HEX[e.color] || INK);
+    let arr = byCol.get(col); if (!arr) byCol.set(col, arr = []);
+    arr.push(e);
+  }
+  ctx.save(); ctx.globalAlpha = 0.85;
+  for (const [col, arr] of byCol) {
+    ctx.fillStyle = col; ctx.beginPath();
+    for (const e of arr) {
+      const a = Math.atan2(e.y - player.y, e.x - player.x), { x, y } = screenEdgePoint(a, margin);
+      const c = Math.cos(a), s = Math.sin(a);
+      ctx.moveTo(x + c * sz, y + s * sz);
+      ctx.lineTo(x - c * sz * 0.6 + s * sz * 0.65, y - s * sz * 0.6 - c * sz * 0.65);
+      ctx.lineTo(x - c * sz * 0.6 - s * sz * 0.65, y - s * sz * 0.6 + c * sz * 0.65);
+      ctx.closePath();
+    }
     ctx.fill();
-
-    ctx.shadowBlur = 0;
+  }
+  ctx.restore();
+}
+function renderInscriptionEdgeIndicators(t) {
+  for (const orb of inscriptionOrbs) {
+    if (Math.hypot(orb.x - player.x, orb.y - player.y) < 350) continue;
+    const angle = Math.atan2(orb.y - player.y, orb.x - player.x), { x, y } = screenEdgePoint(angle, 48);
+    const pulse = 0.75 + 0.25 * Math.sin(t * 3.8 + (orb.pulse || 0) * 0.05);
+    ctx.save(); ctx.translate(x, y);
+    panelRect(-19, -17, 38, 34, 5);
+    const col = drawOrbGlyph(0, -4, orb, t, 8.5, pulse);
+    ctx.fillStyle = WHITE2; ctx.font = fnt(8, 700); ctx.textAlign = 'center';
+    ctx.fillText(ORB_TAG[orb.type] || '刻印', 0, 13);
+    ctx.fillStyle = col; ctx.translate(Math.cos(angle) * 24, Math.sin(angle) * 24); ctx.rotate(angle);
+    ctx.beginPath(); ctx.moveTo(4, 0); ctx.lineTo(-2, -3.5); ctx.lineTo(-2, 3.5); ctx.closePath(); ctx.fill();
     ctx.restore();
   }
 }
 
-// Returns the point on the screen edge in the given angle from screen center
+// ══════════════════════════════════════════════
+//  UNLOCK DIAL
+// ══════════════════════════════════════════════
+function renderCircularUI(t) {
+  const ps = playerScreenPos(), cx = ps.x, cy = ps.y, R = CFG.INNER_R;
+  const shakeX = uiShake > 0 ? Math.sin(uiShake * 1.8) * (uiShake / 10) * 5 : 0;
+  const _slot = activeSlot();
+  const keyCol = _slot.dur > 0 ? (COLOR_HEX[_slot.colors[0]] || CFG.KEY_COLOR) : '#8c9096';
+  ctx.save(); ctx.translate(shakeX, 0);
+  ctx.strokeStyle = phantomMode ? 'rgba(255,255,255,0.35)' : INK3; ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let i = 0; i < 48; i++) {
+    const a = i / 48 * TAU, l = i % 4 === 0 ? 6 : 3;
+    ctx.moveTo(cx + Math.cos(a) * (R + 5), cy + Math.sin(a) * (R + 5));
+    ctx.lineTo(cx + Math.cos(a) * (R + 5 + l), cy + Math.sin(a) * (R + 5 + l));
+  }
+  ctx.stroke();
+  const dashOff = -(t * 0.55 % 1) * 20;
+  ctx.lineWidth = 3;
+  if (_slot.colors.length > 1 && _slot.dur > 0) {
+    const seg = TAU / _slot.colors.length;
+    _slot.colors.forEach((c, i) => { ctx.strokeStyle = COLOR_HEX[c]; ctx.setLineDash([13, 7]); ctx.lineDashOffset = dashOff - i * 20; ctx.beginPath(); ctx.arc(cx, cy, R, i * seg, (i + 1) * seg); ctx.stroke(); });
+  } else {
+    ctx.strokeStyle = keyCol; ctx.setLineDash([13, 7]); ctx.lineDashOffset = dashOff;
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.stroke();
+  }
+  ctx.setLineDash([]); ctx.lineDashOffset = 0;
+  ctx.globalAlpha = 0.12; ctx.fillStyle = keyCol;
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.fill(); ctx.globalAlpha = 1;
+  if (connectedEnemy) {
+    const q = connectedEnemy.angleQueue, hasKey = _slot.dur > 0;
+    const eCols = connectedEnemy.colors || [connectedEnemy.color];
+    const dmg = (hasKey && _slot.colors.some(c => eCols.includes(c))) ? 2 : 1;
+    const show = Math.min(Math.ceil(connectedEnemy.hp / dmg), Math.max(1, 3 - Math.round(RM.predictArrowSub)));
+    const tol = Math.max(5 * Math.PI / 180, CFG.UNLOCK_TOLERANCE + RM.flickTolerance);
+    const ghostAlpha = ghostTimer > 0 ? Math.min(ghostTimer / 25, 1) : 0.55;
+    const ac2 = _slot.dur > 0 && _slot.colors.length > 1 ? _slot.colors.map(c => COLOR_HEX[c]) : null;
+    if (show >= 3 && q.length > 2) { ctx.globalAlpha = 0.22; renderDirectionGuide(cx, cy, q[2], keyCol, 2, tol, ac2); }
+    if (show >= 2 && q.length > 1) { ctx.globalAlpha = 0.48; renderDirectionGuide(cx, cy, q[1], keyCol, 3, tol, ac2); }
+    ctx.globalAlpha = ghostAlpha; renderDirectionGuide(cx, cy, q[0], keyCol, 4.5, tol, ac2); ctx.globalAlpha = 1;
+  }
+  if (RM.cannotEscape > 0) { ctx.fillStyle = DEBUFF_COL; ctx.font = fnt(10, 700); ctx.textAlign = 'center'; ctx.fillText('離脱不可', cx, cy + R + 26); }
+  ctx.restore();
+}
+function renderDirectionGuide(cx, cy, angle, color, lineW = 4, tol = CFG.UNLOCK_TOLERANCE, colors = null) {
+  const R = CFG.INNER_R, OR = CFG.OUTER_R;
+  const ex = cx + Math.cos(angle) * OR * 0.88, ey = cy + Math.sin(angle) * OR * 0.88;
+  const sx = cx + Math.cos(angle) * R * 0.25, sy = cy + Math.sin(angle) * R * 0.25;
+  const useGrad = colors && colors.length > 1, safeTol = Math.max(5 * Math.PI / 180, tol), base = ctx.globalAlpha;
+  const paint = (x0, y0, x1, y1) => { if (!useGrad) return color; const g = ctx.createLinearGradient(x0, y0, x1, y1); colors.forEach((c, i) => g.addColorStop(i / (colors.length - 1), c)); return g; };
+  ctx.save();
+  ctx.globalAlpha = base * 0.28;
+  ctx.fillStyle = paint(cx + Math.cos(angle - safeTol) * OR, cy + Math.sin(angle - safeTol) * OR, cx + Math.cos(angle + safeTol) * OR, cy + Math.sin(angle + safeTol) * OR);
+  ctx.beginPath();
+  ctx.moveTo(cx + Math.cos(angle - safeTol) * R, cy + Math.sin(angle - safeTol) * R);
+  ctx.arc(cx, cy, OR * 0.85, angle - safeTol, angle + safeTol);
+  ctx.arc(cx, cy, R, angle + safeTol, angle - safeTol, true);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+  ctx.save();
+  ctx.strokeStyle = paint(sx, sy, ex, ey); ctx.lineWidth = lineW; ctx.lineCap = 'butt';
+  ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex - Math.cos(angle) * 6, ey - Math.sin(angle) * 6); ctx.stroke();
+  const hw = Math.PI / 6, hs = 9 + lineW * 2.2;
+  ctx.fillStyle = useGrad ? colors[colors.length - 1] : color;
+  ctx.beginPath(); ctx.moveTo(ex, ey);
+  ctx.lineTo(ex - Math.cos(angle - hw) * hs, ey - Math.sin(angle - hw) * hs);
+  ctx.lineTo(ex - Math.cos(angle + hw) * hs, ey - Math.sin(angle + hw) * hs);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+// ══════════════════════════════════════════════
+//  KEY PANEL
+// ══════════════════════════════════════════════
+function keyPanelSlots() {
+  const w = W(), h = H(), spacing = 68, n = keySlots.length, totalW = Math.max(0, n - 1) * spacing;
+  return keySlots.map((slot, i) => ({ slot, idx: i, cx: w / 2 - totalW / 2 + i * spacing, cy: h - 62, r: 28 }));
+}
+function renderKeyPanel(t) {
+  const slots = keyPanelSlots();
+  if (!slots.length) return;
+  const panelY = H() - 62, DUR_MAX = 24;
+  const x0 = slots[0].cx - 40, pw = slots[slots.length - 1].cx - slots[0].cx + 80;
+  ctx.save();
+  panelRect(x0, panelY - 38, pw, 84, 14);
+  for (const s of slots) {
+    const slot = s.slot, dur = slot.dur, cols = slot.colors;
+    const active = s.idx === selectedSlotIdx, hasKey = dur > 0, fused = cols.length > 1;
+    const prim = COLOR_HEX[cols[0]], drawCol = active && !hasKey ? '#8c9096' : prim;
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(s.cx, s.cy, s.r - 5, 0, TAU); ctx.stroke();
+    if (hasKey) {
+      const a0 = -Math.PI / 2, a1 = a0 + TAU * Math.min(dur / DUR_MAX, 1);
+      ctx.globalAlpha = active ? 1 : 0.6; ctx.lineWidth = 2;
+      if (fused) { const seg = (a1 - a0) / cols.length; cols.forEach((c, i) => { ctx.strokeStyle = COLOR_HEX[c]; ctx.beginPath(); ctx.arc(s.cx, s.cy, s.r - 5, a0 + i * seg, a0 + (i + 1) * seg); ctx.stroke(); }); }
+      else { ctx.strokeStyle = prim; ctx.beginPath(); ctx.arc(s.cx, s.cy, s.r - 5, a0, a1); ctx.stroke(); }
+    }
+    if (active) {
+      ctx.globalAlpha = 0.9; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.arc(s.cx, s.cy, s.r, 0, TAU); ctx.stroke();
+      ctx.fillStyle = drawCol;
+      ctx.beginPath(); ctx.moveTo(s.cx - 4, s.cy - s.r - 7); ctx.lineTo(s.cx + 4, s.cy - s.r - 7); ctx.lineTo(s.cx, s.cy - s.r - 2.5); ctx.closePath(); ctx.fill();
+    }
+    if (hasKey) {
+      if (fused) {
+        const orbit = cols.length <= 2 ? 7 : 9;
+        cols.forEach((c, i) => { const a = i / cols.length * TAU - Math.PI / 2; ctx.globalAlpha = active ? 1 : 0.7; ctx.fillStyle = COLOR_HEX[c]; ctx.beginPath(); ctx.arc(s.cx + Math.cos(a) * orbit, s.cy + Math.sin(a) * orbit, 4, 0, TAU); ctx.fill(); });
+      } else {
+        ctx.globalAlpha = active ? 1 : 0.7; ctx.fillStyle = prim;
+        ctx.beginPath(); diamondPath(s.cx, s.cy, active ? 10 : 8.5); ctx.fill();
+      }
+      ctx.globalAlpha = active ? 1 : 0.6;
+      ctx.fillStyle = dur <= CFG.DUR_COST_NORMAL ? DEBUFF_COL : '#fff'; ctx.font = fnt(10, 700); ctx.textAlign = 'center';
+      ctx.fillText(dur, s.cx, s.cy + s.r + 6);
+    } else {
+      ctx.globalAlpha = 0.3; ctx.strokeStyle = drawCol; ctx.lineWidth = 1;
+      ctx.beginPath(); diamondPath(s.cx, s.cy, 7); ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+// ══════════════════════════════════════════════
+//  HUD
+// ══════════════════════════════════════════════
+function pauseButtonBounds() { return { x: 12, y: 12, w: 36, h: 36 }; }
+function renderHUD(w, h, t) {
+  const ph = phantomMode, txt = ph ? '#e9fffb' : INK, txt2 = ph ? 'rgba(233,255,251,0.6)' : INK2;
+  const pb = pauseButtonBounds();
+  panelRect(pb.x, pb.y, pb.w, pb.h, 6);
+  ctx.fillStyle = '#fff'; ctx.fillRect(pb.x + 12, pb.y + 11, 3.5, 14); ctx.fillRect(pb.x + 20.5, pb.y + 11, 3.5, 14);
+
+  const maxHp = Math.max(1, CFG.PLAYER_HP_MAX + RM.maxHpBonus - RM.maxHpMalus);
+  const ratio = clamp01(player.hp / maxHp);
+  const bx = pb.x + pb.w + 12, bw = Math.max(80, Math.min(240, w - bx - 110)), by = 19, bh = 4;
+  ctx.fillStyle = ph ? 'rgba(255,255,255,0.14)' : '#dfe2e6'; ctx.fillRect(bx, by, bw, bh);
+  ctx.fillStyle = ratio > 0.5 ? BUFF_COL : ratio > 0.25 ? '#ddb830' : DEBUFF_COL; ctx.fillRect(bx, by, bw * ratio, bh);
+  if (maxHp <= 24) {
+    ctx.fillStyle = ph ? BG_PH : BG;
+    for (let i = 1; i < maxHp; i++) ctx.fillRect(bx + bw * i / maxHp - 0.5, by, 1, bh);
+  }
+  ctx.fillStyle = txt2; ctx.font = fnt(10, 600); ctx.textAlign = 'left';
+  ctx.fillText(`HP ${player.hp.toFixed(1)} / ${maxHp}`, bx, by + bh + 13);
+
+  ctx.textAlign = 'right';
+  ctx.fillStyle = txt2; ctx.font = fnt(9, 700); ctx.fillText('解錠', w - 14, 18);
+  ctx.fillStyle = txt; ctx.font = fnt(24, 700); ctx.fillText(score, w - 14, 41);
+  let ry = 55;
+  ctx.font = fnt(10, 600); ctx.fillStyle = txt2;
+  if (highScore > 0) { ctx.fillText(`BEST ${highScore}`, w - 14, ry); ry += 13; }
+  if (!phantomMode && nextOrbAt - killCount > 0) ctx.fillText(`次の刻印 ${nextOrbAt - killCount}`, w - 14, ry);
+
+  ctx.textAlign = 'left';
+  let ly = 66;
+  const s = Math.floor(gameTime);
+  ctx.fillStyle = txt; ctx.font = fnt(13, 700);
+  ctx.fillText(`${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`, 14, ly); ly += 15;
+  ctx.fillStyle = txt2; ctx.font = fnt(10, 600);
+  ctx.fillText(`敵 ×${enemies.reduce((n, e) => n + (e.alive ? 1 : 0), 0)}`, 14, ly); ly += 14;
+  if (activeInscriptions.length > 0) { ctx.fillStyle = RARITY_COLOR.epic; ctx.fillText(`刻印 ×${activeInscriptions.length}`, 14, ly); ly += 14; }
+  if (enemyBoostStacks > 0) { ctx.fillStyle = '#ff5a1f'; ctx.fillText(`敵増 ×${enemyBoostStacks}  頻×${Math.pow(1.3, enemyBoostStacks).toFixed(enemyBoostStacks > 20 ? 0 : 1)}`, 14, ly); ly += 14; }
+  if (endlessMode) { ctx.fillStyle = txt2; ctx.fillText(`着彩 ${activePaints.length}/3`, 14, ly); }
+
+  if (combo >= 2) {
+    const cy = by + 46;
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, combo / 4); ctx.textAlign = 'center';
+    ctx.fillStyle = `hsl(${Math.min(60, combo * 4)}, 90%, ${ph ? 62 : 50}%)`;
+    ctx.font = fnt(20 + Math.min(combo, 30) * 0.5, 700);
+    ctx.fillText(combo, w / 2, cy);
+    ctx.fillStyle = txt2; ctx.font = fnt(9, 700); ctx.fillText('COMBO', w / 2, cy + 12);
+    ctx.restore();
+  }
+}
+
+// ══════════════════════════════════════════════
+//  ANNOUNCE — "Tap & Flick" style
+// ══════════════════════════════════════════════
+function renderOrbAnnounce(w, h, t) {
+  const a = orbAnnounce;
+  const alpha = Math.min(1, a.age / 10) * (a.age > a.maxAge - 22 ? (a.maxAge - a.age) / 22 : 1);
+  const cx = w / 2, cy = h / 2;
+  ctx.save();
+  ctx.fillStyle = `rgba(8,9,12,${0.72 * alpha})`; ctx.fillRect(0, 0, w, h);
+  ctx.globalAlpha = alpha;
+  const size = Math.round(Math.min(w, h) * 0.1);
+  ctx.font = fnt(size, 700); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const tw = ctx.measureText(a.label).width;
+  ctx.fillStyle = a.color; ctx.fillText(a.label, cx, cy);
+  const lw = (tw / 2 + 24) * easeOut(a.age / 14);
+  ctx.strokeStyle = a.color; ctx.lineWidth = 1; ctx.globalAlpha = alpha * 0.7;
+  ctx.beginPath(); ctx.moveTo(cx - lw, cy - size * 0.78); ctx.lineTo(cx + lw, cy - size * 0.78);
+  ctx.moveTo(cx - lw, cy + size * 0.78); ctx.lineTo(cx + lw, cy + size * 0.78); ctx.stroke();
+  if (a.sub) {
+    ctx.globalAlpha = alpha * 0.75; ctx.fillStyle = '#fff'; ctx.font = fnt(13, 600);
+    ctx.fillText(a.sub, cx, cy + size * 0.78 + 18);
+  }
+  ctx.restore();
+}
+
+// ══════════════════════════════════════════════
+//  DRAFTS
+// ══════════════════════════════════════════════
+function draftReady(openedAt) { return clamp01((performance.now() - openedAt) / 700); }
+function header(text, y, col = '#fff', size = 18) {
+  ctx.fillStyle = col; ctx.font = fnt(size, 700); ctx.textAlign = 'center'; ctx.fillText(text, W() / 2, y);
+}
+function renderDraft(w, h, t) {
+  if (infectedMode && draftChoices.length > 0 && Array.isArray(draftChoices[0])) { renderInfectedDraft(w, h, t); return; }
+  dim(0.76);
+  header('刻印を選択', h / 2 - 176);
+  const bounds = draftCardBounds(w, h), ready = draftReady(draftOpenedAt);
+  bounds.slice(0, 3).forEach((b, i) => {
+    const ins = draftChoices[i]; if (!ins) return;
+    const rc = RARITY_COLOR[ins.rarity], cx = b.x + b.w / 2;
+    ctx.save();
+    ctx.globalAlpha = 0.45 + 0.55 * ready;
+    panelRect(b.x, b.y, b.w, b.h, 6, hexA(rc.length === 4 ? '#aaaaaa' : rc, 0.8));
+    ctx.fillStyle = rc; ctx.fillRect(b.x + 1, b.y + 1, b.w - 2, 2);
+    ctx.font = fnt(10, 700); ctx.textAlign = 'center'; ctx.fillText(ins.rarity.toUpperCase(), cx, b.y + 22);
+    ctx.beginPath(); diamondPath(cx, b.y + 50, 12); ctx.fill();
+    ctx.fillStyle = BUFF_COL; ctx.font = fnt(10, 700); ctx.fillText('▲ 強化', cx, b.y + 92);
+    ctx.fillStyle = '#fff'; ctx.font = fnt(12, 600); wrapText(ctx, ins.buff.label, cx, b.y + 112, b.w - 18, 16);
+    ctx.fillStyle = DEBUFF_COL; ctx.font = fnt(10, 700); ctx.fillText('▼ 代償', cx, b.y + 170);
+    ctx.fillStyle = '#fff'; ctx.font = fnt(12, 600); wrapText(ctx, ins.debuff.label, cx, b.y + 190, b.w - 18, 16);
+    ctx.restore();
+  });
+  textBtn(bounds[3], '見送る（鍵を補充）', WHITE2, PANEL_LINE, 12);
+  if (activeInscriptions.length > 0) { ctx.fillStyle = WHITE3; ctx.font = fnt(10, 600); ctx.textAlign = 'center'; ctx.fillText(`刻印 ×${activeInscriptions.length}`, w / 2, h - 40); }
+}
+function renderInfectedDraft(w, h, t) {
+  ctx.fillStyle = 'rgba(14,3,22,0.84)'; ctx.fillRect(0, 0, w, h);
+  header('刻印感染 ×5', h / 2 - 190, '#cc66ff');
+  const bounds = draftCardBounds(w, h), ready = draftReady(draftOpenedAt);
+  bounds.slice(0, 3).forEach((b, i) => {
+    const bundle = draftChoices[i]; if (!bundle) return;
+    ctx.save(); ctx.globalAlpha = 0.45 + 0.55 * ready;
+    panelRect(b.x, b.y, b.w, b.h, 6, 'rgba(176,68,216,0.7)');
+    const lineH = (b.h - 24) / 5;
+    bundle.forEach((ins, j) => {
+      const ry = b.y + 14 + j * lineH;
+      ctx.fillStyle = RARITY_COLOR[ins.rarity]; ctx.fillRect(b.x + 7, ry + lineH / 2 - 8, 2, 16);
+      ctx.textAlign = 'left'; ctx.font = fnt(9, 600);
+      ctx.fillStyle = BUFF_COL; ctx.fillText(`▲ ${ins.buff.label}`, b.x + 14, ry + lineH / 2 - 2);
+      ctx.fillStyle = DEBUFF_COL; ctx.fillText(`▼ ${ins.debuff.label}`, b.x + 14, ry + lineH / 2 + 10);
+    });
+    ctx.restore();
+  });
+  textBtn(bounds[3], '見送る（鍵を補充）', WHITE2, PANEL_LINE, 12);
+}
+function renderFusionSelect(w, h, t) {
+  dim(0.66);
+  const cx = w / 2, pw = Math.min(340, w - 24);
+  panelRect(cx - pw / 2, 52, pw, 74, 6, 'rgba(224,180,58,0.6)');
+  ctx.fillStyle = '#e0b43a'; ctx.font = fnt(16, 700); ctx.textAlign = 'center'; ctx.fillText('色融合', cx, 82);
+  const label = s => s ? s.colors.map(c => COLOR_NAME[c] || c).join('+') : '?';
+  const fs = keyPanelSlots();
+  const ring = (idx, col, ph2) => { const s = fs.find(f => f.idx === idx); if (!s) return; ctx.save(); ctx.globalAlpha = 0.7 + 0.3 * Math.sin(t * 5 + ph2); ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(s.cx, s.cy, s.r + 10, 0, TAU); ctx.stroke(); ctx.restore(); };
+  if (fusionSlotB !== -1) {
+    const sA = keySlots[fusionSlotA], sB = keySlots[fusionSlotB];
+    const merged = sA && sB ? [...new Set([...sA.colors, ...sB.colors])] : [];
+    ctx.fillStyle = '#fff'; ctx.font = fnt(13, 600);
+    ctx.fillText(`${label(sA)} ＋ ${label(sB)} → ${merged.map(c => COLOR_NAME[c]).join('+')}`, cx, 108);
+    const cw = 260, ch = 70, cy0 = h / 2 - 50;
+    panelRect(cx - cw / 2, cy0, cw, ch, 6);
+    const sp = Math.min(44, (cw - 40) / Math.max(merged.length, 1)), sx0 = cx - sp * (merged.length - 1) / 2;
+    merged.forEach((c, i) => { ctx.fillStyle = COLOR_HEX[c]; ctx.beginPath(); diamondPath(sx0 + i * sp, cy0 + ch / 2, 13); ctx.fill(); });
+    const btn = fusionConfirmBounds(w, h);
+    textBtn(btn.confirm, '融合', '#e0b43a', 'rgba(224,180,58,0.7)', 15);
+    textBtn(btn.cancel, '選び直す', WHITE2, PANEL_LINE, 14);
+    ring(fusionSlotA, '#e0b43a', 0); ring(fusionSlotB, '#fff', Math.PI);
+  } else {
+    ctx.fillStyle = '#fff'; ctx.font = fnt(13, 600);
+    ctx.fillText(fusionSlotA === -1 ? '1本目の鍵をタップ' : `${label(keySlots[fusionSlotA])} ＋ 2本目をタップ`, cx, 108);
+    if (fusionSlotA !== -1) ring(fusionSlotA, '#e0b43a', 0);
+  }
+}
+function renderPaintDraft(w, h, t) {
+  dim(0.74);
+  header('着彩刻印', h / 2 - 126);
+  const ready = draftReady(paintDraftOpenedAt), { cards, skip, reset } = paintDraftAllBounds(w, h);
+  for (const b of cards) {
+    const p = paintDraftChoices[b.index]; if (!p) continue;
+    ctx.save(); ctx.globalAlpha = 0.45 + 0.55 * ready;
+    panelRect(b.x, b.y, b.w, b.h, 6);
+    ctx.save(); ctx.beginPath(); ctx.rect(b.x + 10, b.y + 12, b.w - 20, 26); ctx.clip();
+    drawPaintColorBar(b.x + 10, b.y + 12, b.w - 20, 26, p.pair); ctx.restore();
+    ctx.fillStyle = '#fff'; ctx.font = fnt(22, 700); ctx.textAlign = 'center'; ctx.fillText(p.pair.name, b.x + b.w / 2, b.y + 84);
+    ctx.fillStyle = WHITE2; ctx.font = fnt(12, 600); ctx.fillText(`${p.blend.char}/${p.motion.char}/${p.density.char}`, b.x + b.w / 2, b.y + 106);
+    ctx.restore();
+  }
+  textBtn(skip, '選ばない', WHITE2, PANEL_LINE, 13);
+  textBtn(reset, '着彩リセット', '#ff8a80', 'rgba(232,69,60,0.5)', 13);
+}
+
+// ══════════════════════════════════════════════
+//  PAUSE / GAME OVER / TITLE
+// ══════════════════════════════════════════════
+function pauseLayout(w, h) {
+  const cx = w / 2, cardW = Math.min(w - 32, 300), cardH = 400, cardX = cx - cardW / 2, cardY = h / 2 - cardH / 2;
+  return { cx, cardW, cardH, cardX, cardY,
+    resume: { x: cx - 90, y: cardY + 70, w: 180, h: 44 },
+    reset:  { x: cx - 90, y: cardY + 126, w: 180, h: 44 },
+    hints:  { x: cx - 70, y: cardY + cardH - 44, w: 140, h: 28 } };
+}
+function renderPause(w, h, t) {
+  dim(0.78);
+  const L = pauseLayout(w, h);
+  panelRect(L.cardX, L.cardY, L.cardW, L.cardH, 8);
+  ctx.fillStyle = '#fff'; ctx.font = fnt(20, 700); ctx.textAlign = 'center'; ctx.fillText('PAUSE', L.cx, L.cardY + 44);
+  textBtn(L.resume, '再開', BUFF_COL, 'rgba(61,184,106,0.6)', 15);
+  textBtn(L.reset, 'リセット', '#ff8a80', 'rgba(232,69,60,0.5)', 15);
+  ctx.strokeStyle = PANEL_LINE; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(L.cardX + 20, L.cardY + 192); ctx.lineTo(L.cardX + L.cardW - 20, L.cardY + 192); ctx.stroke();
+  const rows = [['TAP', '敵に接続 ／ 停止'], ['FLICK', '移動'], ['円内 FLICK', '解錠'], ['円外 FLICK', '離脱'], ['鍵 TAP', '鍵を持ち替え']];
+  if (phantomOrbPickedUp) rows.push(['HOLD', '幻影切替']);
+  rows.forEach(([k, v], i) => {
+    const y = L.cardY + 216 + i * 21;
+    ctx.textAlign = 'left'; ctx.fillStyle = '#fff'; ctx.font = fnt(11, 700); ctx.fillText(k, L.cardX + 24, y);
+    ctx.textAlign = 'right'; ctx.fillStyle = WHITE2; ctx.font = fnt(11, 600); ctx.fillText(v, L.cardX + L.cardW - 24, y);
+  });
+  const traits = [['red', '基本'], ['blue', '硬い'], ['yellow', '速い'], ['green', '回復'], ['purple', '爆発']];
+  const tw = (L.cardW - 32) / 5, ty = L.cardY + L.cardH - 70;
+  traits.forEach(([c, tr], i) => {
+    const tx = L.cardX + 16 + tw * i + tw / 2;
+    ctx.fillStyle = COLOR_HEX[c]; ctx.beginPath(); diamondPath(tx - 14, ty - 4, 5); ctx.fill();
+    ctx.fillStyle = WHITE2; ctx.font = fnt(10, 600); ctx.textAlign = 'left'; ctx.fillText(tr, tx - 6, ty);
+  });
+  ctx.fillStyle = WHITE3; ctx.font = fnt(11, 600); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('ヒント再表示', L.hints.x + L.hints.w / 2, L.hints.y + L.hints.h / 2);
+  ctx.textBaseline = 'alphabetic';
+}
+function renderGameOver(w, h, t) {
+  const res = lastResult || { score, killCount, maxCombo, gameTime };
+  dim(0.8);
+  const cx = w / 2, cardW = Math.min(w - 48, 300), cardH = 300, cardX = cx - cardW / 2, cardY = h / 2 - cardH / 2;
+  panelRect(cardX, cardY, cardW, cardH, 8);
+  ctx.fillStyle = DEBUFF_COL; ctx.font = fnt(26, 700); ctx.textAlign = 'center'; ctx.fillText('GAME OVER', cx, cardY + 46);
+  const isNewBest = res.killCount >= highScore && res.killCount > 0;
+  if (isNewBest) { ctx.fillStyle = '#ddb830'; ctx.font = fnt(10, 700); ctx.fillText('NEW BEST', cx, cardY + 64); }
+  const s = Math.floor(res.gameTime);
+  const stats = [['生存時間', s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : `${s}s`], ['解錠', `${res.killCount}`, isNewBest], ['MAX COMBO', `${res.maxCombo}`], ['刻印', `${res.inscriptions || 0}`], ['BEST', `${highScore}`, false, true]];
+  stats.forEach(([l, v, hi, dm], i) => {
+    const ry = cardY + 98 + i * 34;
+    ctx.textAlign = 'left'; ctx.fillStyle = dm ? WHITE3 : WHITE2; ctx.font = fnt(11, 600); ctx.fillText(l, cardX + 26, ry);
+    ctx.textAlign = 'right'; ctx.fillStyle = hi ? '#ddb830' : dm ? WHITE2 : '#fff'; ctx.font = fnt(dm ? 15 : 20, 700); ctx.fillText(v, cardX + cardW - 26, ry);
+  });
+  const hold = gameOverHoldStart > 0 ? Math.min(1, (performance.now() - gameOverHoldStart) / GAMEOVER_HOLD_MS) : 0;
+  const hy = cardY + cardH - 26;
+  ctx.strokeStyle = WHITE3; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(cx - 50, hy - 4, 7, 0, TAU); ctx.stroke();
+  if (hold > 0) { ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.arc(cx - 50, hy - 4, 7, -Math.PI / 2, -Math.PI / 2 + hold * TAU); ctx.stroke(); }
+  ctx.fillStyle = hold > 0 ? '#fff' : WHITE2; ctx.font = fnt(12, 600); ctx.textAlign = 'left'; ctx.fillText('長押しで再開', cx - 36, hy);
+}
+function renderTitle(w, h, t) {
+  ctx.fillStyle = 'rgba(246,247,248,0.94)'; ctx.fillRect(0, 0, w, h);
+  const cy = h * 0.42;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = INK; ctx.font = fnt(Math.min(56, w * 0.14), 700); ctx.fillText('CroqKey', w / 2, cy);
+  const lw = 70;
+  ctx.strokeStyle = INK; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(w / 2 - lw, cy + 18); ctx.lineTo(w / 2 + lw, cy + 18); ctx.stroke();
+  COLORS.forEach((c, i) => { ctx.fillStyle = COLOR_HEX[c]; ctx.beginPath(); diamondPath(w / 2 + (i - 2) * 18, cy + 40, 5); ctx.fill(); });
+  if (highScore > 0) { ctx.fillStyle = INK2; ctx.font = fnt(11, 600); ctx.fillText(`BEST ${highScore}`, w / 2, cy + 74); }
+  ctx.globalAlpha = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(t * 3));
+  ctx.fillStyle = INK; ctx.font = fnt(13, 700); ctx.fillText('TAP TO START', w / 2, h * 0.74);
+  ctx.globalAlpha = 1; ctx.fillStyle = INK3; ctx.font = fnt(10, 600); ctx.fillText(`v${BUILD}`, w / 2, h - 24);
+  ctx.globalAlpha = 1;
+}
+
+function wrapText(c, text, cx, y, maxW, lineH) {
+  let line = '';
+  for (const ch of text) {
+    const test = line + ch;
+    if (c.measureText(test).width > maxW && line !== '') { c.fillText(line, cx, y); y += lineH; line = ch; }
+    else line = test;
+  }
+  c.fillText(line, cx, y);
+}
 function screenEdgePoint(angle, margin) {
-  const hw = W() / 2 - margin;
-  const hh = H() / 2 - margin;
-  const cos = Math.cos(angle), sin = Math.sin(angle);
-  const tx = cos !== 0 ? hw / Math.abs(cos) : Infinity;
-  const ty = sin !== 0 ? hh / Math.abs(sin) : Infinity;
-  const t  = Math.min(tx, ty);
+  const hw = W() / 2 - margin, hh = H() / 2 - margin, cos = Math.cos(angle), sin = Math.sin(angle);
+  const t = Math.min(cos !== 0 ? hw / Math.abs(cos) : Infinity, sin !== 0 ? hh / Math.abs(sin) : Infinity);
   return { x: W() / 2 + cos * t, y: H() / 2 + sin * t };
+}
+
+// ══════════════════════════════════════════════
+//  HINTS — one short label at a time, retired once done
+// ══════════════════════════════════════════════
+const HINT_STORE = 'croqkey_hints_v1';
+let hintsLearned = new Set();
+try { hintsLearned = new Set(JSON.parse(localStorage.getItem(HINT_STORE) || '[]')); } catch (e) { /* private mode */ }
+let activeHint = null, hintCooldown = 50;
+const hintPending = {};
+function saveHints() { try { localStorage.setItem(HINT_STORE, JSON.stringify([...hintsLearned])); } catch (e) { /* ignore */ } }
+function learnHint(id) {
+  if (hintsLearned.has(id)) return;
+  hintsLearned.add(id); saveHints();
+  if (activeHint && activeHint.def.id === id) activeHint.done = true;
+}
+function resetHints() { hintsLearned.clear(); saveHints(); activeHint = null; fieldNotes.length = 0; hintCooldown = 30; }
+function hintEvent(ev) { for (const d of HINT_DEFS) if (d.ev === ev) learnHint(d.id); }
+
+function onScreenPt(p, m = 0) { return p && p.x > m && p.x < W() - m && p.y > m && p.y < H() - m; }
+function nearestScreen(list, filter, m = 30) {
+  let best = null, bd = Infinity;
+  for (const o of list) {
+    if (!filter(o)) continue;
+    const p = w2sz(o.x, o.y);
+    if (!onScreenPt(p, m) || p.y > H() - 140 || p.y < 80) continue;
+    const d = Math.hypot(o.x - player.x, o.y - player.y);
+    if (d < bd) { bd = d; best = p; }
+  }
+  return best;
+}
+const nearestEnemyScreen = () => nearestScreen(enemies, e => e.alive);
+const nearestKeyScreen = () => nearestScreen(keyDrops, () => true, 20);
+function nearestOrbScreen(type) {
+  let best = null, bd = Infinity;
+  for (const o of inscriptionOrbs) { if (o.type !== type) continue; const d = Math.hypot(o.x - player.x, o.y - player.y); if (d < bd) { bd = d; best = o; } }
+  if (!best) return null;
+  const p = w2sz(best.x, best.y);
+  return onScreenPt(p, 30) ? p : screenEdgePoint(Math.atan2(best.y - player.y, best.x - player.x), 48);
+}
+function threatNear(d) { for (const e of enemies) if (e.alive && e !== connectedEnemy && Math.hypot(e.x - player.x, e.y - player.y) < d) return e; return null; }
+function otherKeyReady() { let idx = -1; keySlots.forEach((s, i) => { if (idx < 0 && i !== selectedSlotIdx && s.dur > 0) idx = i; }); return idx; }
+function matchSlotIdx() { if (!connectedEnemy) return -1; const ec = connectedEnemy.colors || [connectedEnemy.color]; return keySlots.findIndex(s => s.dur > 0 && s.colors.some(c => ec.includes(c))); }
+function activeMatches() { if (!connectedEnemy) return false; const ec = connectedEnemy.colors || [connectedEnemy.color], s = activeSlot(); return s.dur > 0 && s.colors.some(c => ec.includes(c)); }
+function slotScreen(i) { const s = keyPanelSlots().find(k => k.idx === i); return s ? { x: s.cx, y: s.cy } : null; }
+
+const HINT_DEFS = [
+  { id: 'connect', ev: 'connect', text: 'TAP', gesture: 'tap',
+    when: () => state === State.IDLE && nearestEnemyScreen(), target: nearestEnemyScreen },
+  { id: 'unlock', ev: 'hit', text: '円内から矢印へ FLICK', gesture: 'ring', delay: 4,
+    when: () => state === State.CONNECTED && !!connectedEnemy, target: () => playerScreenPos() },
+  { id: 'move', ev: 'move', text: 'FLICK で移動', gesture: 'flickTo',
+    when: () => state === State.IDLE && hintsLearned.has('unlock') && nearestKeyScreen(), target: nearestKeyScreen },
+  { id: 'switch', ev: 'slot', text: '鍵を TAP', gesture: 'tap', slot: true,
+    when: () => (state === State.IDLE || state === State.CONNECTED) && otherKeyReady() >= 0, target: () => slotScreen(otherKeyReady()) },
+  { id: 'match', ev: 'crit', text: '同色で CRIT', gesture: 'tap', slot: true,
+    when: () => state === State.CONNECTED && hintsLearned.has('switch') && matchSlotIdx() >= 0 && !activeMatches(), target: () => slotScreen(matchSlotIdx()) },
+  { id: 'escape', ev: 'escape', text: '円外から FLICK で離脱', gesture: 'escape',
+    when: () => state === State.CONNECTED && hintsLearned.has('unlock') && threatNear(95), target: () => playerScreenPos() },
+  { id: 'worn', text: '同色の鍵で回復', gesture: 'point', slot: true, learnOnResolve: true,
+    when: () => activeSlot().dur === 0 && killCount > 2, target: () => slotScreen(selectedSlotIdx) },
+  { id: 'orb', ev: 'draft', text: '刻印へ', gesture: 'flickTo',
+    when: () => state === State.IDLE && inscriptionOrbs.some(o => o.type === 'normal'), target: () => nearestOrbScreen('normal') },
+  { id: 'phantom', ev: 'phantom', text: 'HOLD で幻影', gesture: 'hold',
+    when: () => state === State.IDLE && phantomOrbPickedUp && !phantomMode, target: () => ({ x: W() / 2, y: H() * 0.62 }) },
+];
+
+function updateHints() {
+  if (activeHint) {
+    const a = activeHint;
+    a.age++;
+    if (a.done || a.fading) { if (++a.fade > 14) { hintCooldown = a.done ? 8 : 70; activeHint = null; } return; }
+    let ok = false; try { ok = !!a.def.when(); } catch (e) { ok = false; }
+    if (!ok) { if (++a.lost > 24) { if (a.def.learnOnResolve && a.age > 80) learnHint(a.def.id); a.fading = true; } } else a.lost = 0;
+    return;
+  }
+  if (hintCooldown > 0) { hintCooldown--; return; }
+  if (orbAnnounce) return;
+  for (const d of HINT_DEFS) {
+    if (hintsLearned.has(d.id)) continue;
+    let ok = false; try { ok = !!d.when(); } catch (e) { ok = false; }
+    hintPending[d.id] = ok ? (hintPending[d.id] || 0) + 1 : 0;
+    if (hintPending[d.id] > (d.delay ?? 24)) { hintPending[d.id] = 0; activeHint = { def: d, age: 0, fade: 0, lost: 0, done: false, fading: false }; return; }
+  }
+}
+
+function hintLabel(x, y, text, alpha) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.font = fnt(12, 700);
+  const tw = ctx.measureText(text).width, bw = tw + 20, bh = 24;
+  const bx = Math.max(8, Math.min(W() - bw - 8, x - bw / 2)), byy = Math.max(8, Math.min(H() - bh - 8, y - bh / 2));
+  panelRect(bx, byy, bw, bh, 4);
+  ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(text, bx + bw / 2, byy + bh / 2 + 1);
+  ctx.textBaseline = 'alphabetic';
+  ctx.restore();
+}
+function travelDot(x0, y0, x1, y1, cyc, col, alpha) {
+  const p = cyc < 0.12 ? 0 : easeOut((cyc - 0.12) / 0.45), fade = cyc > 0.7 ? 1 - (cyc - 0.7) / 0.3 : 1;
+  const x = x0 + (x1 - x0) * p, y = y0 + (y1 - y0) * p;
+  ctx.save();
+  ctx.globalAlpha = alpha * fade; ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 2; ctx.lineCap = 'round';
+  if (p > 0) { ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x, y); ctx.stroke(); }
+  ctx.beginPath(); ctx.arc(x, y, cyc < 0.12 ? 7 : 5.5, 0, TAU); ctx.fill();
+  ctx.globalAlpha = alpha * fade * 0.5; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(x0, y0, 10, 0, TAU); ctx.stroke();
+  ctx.restore();
+}
+function renderHint(t) {
+  const a = activeHint;
+  if (!a || orbAnnounce || !(state === State.IDLE || state === State.CONNECTED)) return;
+  const alpha = Math.min(1, a.age / 10) * ((a.done || a.fading) ? Math.max(0, 1 - a.fade / 14) : 1);
+  if (alpha <= 0) return;
+  const d = a.def;
+  let target = null; try { target = d.target(); } catch (e) { target = null; }
+  if (!target) return;
+  const cyc = t % 1.4 / 1.4, ink = phantomMode ? '#ffffff' : INK;
+  let lx = target.x, ly = target.y - 40;
+  ctx.save();
+  if (d.gesture === 'tap' || d.gesture === 'point') {
+    if (d.slot) ly = target.y - 52;
+    if (d.gesture === 'tap') {
+      ctx.strokeStyle = d.slot ? '#ffffff' : ink; ctx.lineWidth = 1.5;
+      for (const k of [0, 0.5]) { const p = (cyc + k) % 1; ctx.globalAlpha = alpha * (1 - p); ctx.beginPath(); ctx.arc(target.x, target.y, 8 + p * 22, 0, TAU); ctx.stroke(); }
+    } else {
+      ctx.globalAlpha = alpha; ctx.fillStyle = '#fff'; const b = Math.sin(t * 6) * 3;
+      ctx.beginPath(); ctx.moveTo(target.x, target.y - 33 + b); ctx.lineTo(target.x - 5, target.y - 40 + b); ctx.lineTo(target.x + 5, target.y - 40 + b); ctx.closePath(); ctx.fill();
+      ly = target.y - 60;
+    }
+  } else if (d.gesture === 'ring' && connectedEnemy) {
+    const ang = connectedEnemy.angleQueue[0], c = Math.cos(ang), s = Math.sin(ang);
+    travelDot(target.x + c * 6, target.y + s * 6, target.x + c * (CFG.INNER_R + 46), target.y + s * (CFG.INNER_R + 46), cyc, ink, alpha);
+    lx = target.x; ly = target.y + CFG.INNER_R + 34;
+  } else if (d.gesture === 'escape') {
+    const th = threatNear(140) || connectedEnemy;
+    const away = th ? Math.atan2(player.y - th.y, player.x - th.x) : -Math.PI / 2, c = Math.cos(away), s = Math.sin(away);
+    const r0 = CFG.INNER_R + 24;
+    ctx.globalAlpha = alpha * 0.5; ctx.strokeStyle = ink; ctx.lineWidth = 1; ctx.setLineDash([3, 4]);
+    ctx.beginPath(); ctx.arc(target.x, target.y, CFG.INNER_R + 3, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+    travelDot(target.x + c * r0, target.y + s * r0, target.x + c * (r0 + 64), target.y + s * (r0 + 64), cyc, ink, alpha);
+    lx = target.x; ly = target.y + CFG.INNER_R + 34;
+  } else if (d.gesture === 'flickTo') {
+    const ps = w2sz(player.x, player.y), ang = Math.atan2(target.y - ps.y, target.x - ps.x);
+    const len = Math.min(80, Math.hypot(target.x - ps.x, target.y - ps.y) * 0.6), c = Math.cos(ang), s = Math.sin(ang);
+    ctx.globalAlpha = alpha * 0.7; ctx.strokeStyle = ink; ctx.lineWidth = 1;
+    const b = 16;
+    ctx.beginPath();
+    for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) { ctx.moveTo(target.x + sx * b, target.y + sy * (b - 5)); ctx.lineTo(target.x + sx * b, target.y + sy * b); ctx.lineTo(target.x + sx * (b - 5), target.y + sy * b); }
+    ctx.stroke();
+    travelDot(ps.x + c * 24, ps.y + s * 24, ps.x + c * (24 + len), ps.y + s * (24 + len), cyc, ink, alpha);
+    lx = target.x; ly = target.y - 34;
+  } else if (d.gesture === 'hold') {
+    const p = clamp01(cyc / 0.8);
+    ctx.globalAlpha = alpha; ctx.lineWidth = 2;
+    ctx.strokeStyle = phantomMode ? 'rgba(255,255,255,0.25)' : INK3; ctx.beginPath(); ctx.arc(target.x, target.y, 26, 0, TAU); ctx.stroke();
+    ctx.strokeStyle = PH_COL; ctx.beginPath(); ctx.arc(target.x, target.y, 26, -Math.PI / 2, -Math.PI / 2 + p * TAU); ctx.stroke();
+    ctx.fillStyle = ink; ctx.beginPath(); ctx.arc(target.x, target.y, 5, 0, TAU); ctx.fill();
+    ly = target.y - 46;
+  }
+  ctx.restore();
+  hintLabel(lx, ly, d.text, alpha);
+}
+
+// ── first-sight notes (one line, one at a time) ──
+const NOTE_TEXT = {
+  note_blue: '青 ｜ 遅い・硬い', note_yellow: '黄 ｜ 速い・脆い', note_green: '緑 ｜ 周囲を回復',
+  note_purple: '紫 ｜ 撃破で爆発', note_fusion: '融合 ｜ 全色の性質',
+  note_o_fusion: '色融合 ｜ 鍵を合成', note_o_enemy_boost: '敵増加 ｜ 敵が増える', note_o_infection: '感染 ｜ 刻印が5つ束に',
+  note_o_phantom: '幻影 ｜ HOLD で切替', note_o_paint: '着彩 ｜ 画面に色',
+};
+const fieldNotes = [];
+function updateFieldNotes() {
+  for (let i = fieldNotes.length - 1; i >= 0; i--) {
+    const n = fieldNotes[i];
+    n.age++;
+    const gone = n.isOrb ? !inscriptionOrbs.includes(n.ref) : !n.ref.alive;
+    if (gone && !n.gone) { n.gone = true; n.age = Math.max(n.age, n.max - 14); }
+    if (n.age >= n.max) fieldNotes.splice(i, 1);
+  }
+  if (fieldNotes.length || frame % 12 !== 0 || !hintsLearned.has('unlock')) return;
+  if (activeHint && !activeHint.done) return;
+  const v = visibleWorld(-40), inView = o => o.x > v.x0 && o.x < v.x1 && o.y > v.y0 && o.y < v.y1 - 90;
+  for (const e of enemies) {
+    if (!e.alive || !inView(e)) continue;
+    const id = e.fusion ? 'note_fusion' : 'note_' + e.color;
+    if (!NOTE_TEXT[id] || hintsLearned.has(id)) continue;
+    learnHint(id); fieldNotes.push({ ref: e, isOrb: false, text: NOTE_TEXT[id], col: COLOR_HEX[e.color], age: 0, max: 240 });
+    return;
+  }
+  for (const o of inscriptionOrbs) {
+    if (o.type === 'normal' || !inView(o)) continue;
+    const id = 'note_o_' + o.type;
+    if (!NOTE_TEXT[id] || hintsLearned.has(id)) continue;
+    learnHint(id); fieldNotes.push({ ref: o, isOrb: true, text: NOTE_TEXT[id], col: orbColor(o, 0), age: 0, max: 240 });
+    return;
+  }
+}
+function renderFieldNotes(t) {
+  if (!(state === State.IDLE || state === State.CONNECTED)) return;
+  for (const n of fieldNotes) {
+    const a = Math.min(1, n.age / 10) * Math.min(1, (n.max - n.age) / 14);
+    if (!n.gone) n.last = w2sz(n.ref.x, n.ref.y);
+    const p = n.last; if (!p) continue;
+    ctx.save(); ctx.globalAlpha = a;
+    ctx.font = fnt(11, 700);
+    const tw = ctx.measureText(n.text).width, bw = tw + 26, bh = 22;
+    let lx = p.x + 28, ly = p.y - 42;
+    if (lx + bw > W() - 8) lx = p.x - 28 - bw;
+    if (ly < 70) ly = p.y + 24;
+    lx = Math.max(8, lx);
+    ctx.strokeStyle = n.col; ctx.lineWidth = 1;
+    const ax = lx < p.x ? lx + bw : lx, ay = ly + bh / 2, ang = Math.atan2(ay - p.y, ax - p.x);
+    ctx.beginPath(); ctx.moveTo(p.x + Math.cos(ang) * 22, p.y + Math.sin(ang) * 22); ctx.lineTo(ax, ay); ctx.stroke();
+    panelRect(lx, ly, bw, bh, 4);
+    ctx.fillStyle = n.col; ctx.fillRect(lx + 8, ly + bh / 2 - 3, 6, 6);
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(n.text, lx + 19, ly + bh / 2 + 1);
+    ctx.restore();
+  }
+}
+
+// ── finger trail & long-press gauge ─────────────
+const swipeTrail = { pts: [], col: INK };
+function trailStart(x, y) {
+  swipeTrail.pts = [{ x, y, t: performance.now() }];
+  let col = phantomMode ? '#ffffff' : INK;
+  if (state === State.CONNECTED) { const ps = playerScreenPos(); if (Math.hypot(x - ps.x, y - ps.y) < CFG.INNER_R) col = COLOR_HEX[activeKeyColor()] || INK; }
+  swipeTrail.col = col;
+}
+function trailMove(x, y) {
+  if (!touch) return;
+  swipeTrail.pts.push({ x, y, t: performance.now() });
+  if (swipeTrail.pts.length > 30) swipeTrail.pts.shift();
+}
+function renderSwipeTrail() {
+  if (!(state === State.IDLE || state === State.CONNECTED)) return;
+  const now = performance.now(), pts = swipeTrail.pts;
+  if (pts.length < 2) return;
+  ctx.save(); ctx.lineCap = 'round'; ctx.strokeStyle = swipeTrail.col;
+  for (let i = 1; i < pts.length; i++) {
+    const age = (now - pts[i].t) / 240;
+    if (age >= 1) continue;
+    ctx.globalAlpha = (1 - age) * 0.4; ctx.lineWidth = 1 + (1 - age) * 3;
+    ctx.beginPath(); ctx.moveTo(pts[i - 1].x, pts[i - 1].y); ctx.lineTo(pts[i].x, pts[i].y); ctx.stroke();
+  }
+  ctx.restore();
+}
+function renderHoldRing() {
+  if (!touch || !phantomOrbPickedUp || state !== State.IDLE || phantomHoldFired) return;
+  const el = performance.now() - touch.t;
+  if (el < 140) return;
+  const last = swipeTrail.pts[swipeTrail.pts.length - 1];
+  if (last && Math.hypot(last.x - touch.sx, last.y - touch.sy) > 25) return;
+  const p = clamp01((el - 140) / (PHANTOM_HOLD_MS - 140));
+  ctx.save(); ctx.lineWidth = 2.5;
+  ctx.strokeStyle = phantomMode ? 'rgba(255,255,255,0.25)' : INK3; ctx.beginPath(); ctx.arc(touch.sx, touch.sy, 32, 0, TAU); ctx.stroke();
+  ctx.strokeStyle = PH_COL; ctx.beginPath(); ctx.arc(touch.sx, touch.sy, 32, -Math.PI / 2, -Math.PI / 2 + p * TAU); ctx.stroke();
+  ctx.fillStyle = phantomMode ? '#fff' : INK; ctx.font = fnt(10, 700); ctx.textAlign = 'center';
+  ctx.fillText(phantomMode ? '解除' : '幻影', touch.sx, touch.sy - 42);
+  ctx.restore();
 }
 
 // ══════════════════════════════════════════════
 //  HELPERS
 // ══════════════════════════════════════════════
 function roundRect(x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y);
-  ctx.arcTo(x + w, y,   x + w, y + r,   r);
-  ctx.lineTo(x + w, y + h - r);
-  ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
-  ctx.lineTo(x + r, y + h);
-  ctx.arcTo(x, y + h, x, y + h - r, r);
-  ctx.lineTo(x, y + r);
-  ctx.arcTo(x, y, x + r, y, r);
-  ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fill();
 }
 
 // ══════════════════════════════════════════════
 //  MAIN LOOP
 // ══════════════════════════════════════════════
-function loop() { update(); render(); requestAnimationFrame(loop); }
+// Drop to 1x pixel density for the rest of the session if the device can't keep up
+let _lastNow = 0, _perfSum = 0, _perfN = 0;
+function loop(now) {
+  if (_lastNow) { const dt = now - _lastNow; if (dt < 250) { _perfSum += dt; _perfN++; } }
+  _lastNow = now;
+  if (_perfN >= 120) {
+    if (DPR > 1 && _perfSum / _perfN > 22) { DPR = 1; resize(); }
+    _perfSum = _perfN = 0;
+  }
+  update(); render(); requestAnimationFrame(loop);
+}
 
 initPlayer();
 spawnEnemies();
-orbAnnounce = { label: 'Tap & Flick', color: '#cccccc', age: 0, maxAge: 110, slowFrames: 70 };
+state = State.TITLE;
 requestAnimationFrame(loop);
